@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../../../../SHANON/shannon"
+		},
+		{
+			"path": "../../.."
+		}
+	],
+	"settings": {
+		"java.compile.nullAnalysis.mode": "automatic"
+	}
+}

@@ -1,0 +1,268 @@
+/* ========================================
+   VALIDACIÓN BIOMÉTRICA - ESTILOS
+   ======================================== */
+
+.validacion-biometrica-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 1rem;
+    animation: fadeIn 0.3s ease;
+}
+
+.validacion-biometrica-modal {
+    background: linear-gradient(145deg, #1a1a2e, #16213e);
+    border-radius: 24px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 25px 80px rgba(16, 185, 129, 0.3);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    overflow: hidden;
+    animation: slideUp 0.4s ease;
+}
+
+/* Header */
+.validacion-biometrica-header {
+    padding: 1.5rem;
+    text-align: center;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.1));
+    border-bottom: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.validacion-biometrica-icon {
+    width: 50px;
+    height: 50px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1rem;
+    color: white;
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+}
+
+.validacion-biometrica-title h2 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #fff;
+    margin: 0 0 0.5rem;
+}
+
+.validacion-biometrica-title p {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.7);
+    margin: 0;
+}
+
+.validacion-biometrica-title strong {
+    color: #10b981;
+}
+
+/* Content */
+.validacion-biometrica-content {
+    padding: 2rem;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.validacion-biometrica-status {
+    text-align: center;
+    color: white;
+}
+
+.validacion-biometrica-status h3 {
+    font-size: 1.2rem;
+    margin: 1rem 0 0.5rem;
+    font-weight: 600;
+}
+
+.validacion-biometrica-status p {
+    color: rgba(255, 255, 255, 0.7);
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+/* Biometric Icon Container */
+.biometric-icon-container {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.1));
+    border: 2px solid rgba(16, 185, 129, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1rem;
+    color: #10b981;
+    transition: all 0.3s ease;
+}
+
+.biometric-icon-container.pulse {
+    animation: biometricPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes biometricPulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+    }
+
+    50% {
+        transform: scale(1.05);
+        box-shadow: 0 0 0 20px rgba(16, 185, 129, 0);
+    }
+}
+
+/* Status States */
+.validacion-biometrica-status.checking .spin {
+    animation: spin 1s linear infinite;
+    color: #10b981;
+}
+
+.validacion-biometrica-status.success {
+    color: #10b981;
+}
+
+.validacion-biometrica-status.success h3 {
+    color: #10b981;
+}
+
+.validacion-biometrica-status.error {
+    color: #f87171;
+}
+
+.validacion-biometrica-status.error p {
+    color: #f87171;
+}
+
+/* Controls */
+.validacion-biometrica-controls {
+    padding: 0 1.5rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.btn-biometric {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+}
+
+.btn-biometric:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 35px rgba(16, 185, 129, 0.5);
+}
+
+.btn-biometric:active {
+    transform: translateY(0);
+}
+
+.btn-biometric svg {
+    width: 24px;
+    height: 24px;
+}
+
+.btn-cancel {
+    padding: 0.75rem 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-cancel:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+/* Footer */
+.validacion-biometrica-footer {
+    padding: 1rem 1.5rem;
+    text-align: center;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.validacion-biometrica-footer p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Mobile Responsive */
+@media (max-width: 480px) {
+    .validacion-biometrica-overlay {
+        padding: 0;
+    }
+
+    .validacion-biometrica-modal {
+        border-radius: 0;
+        max-width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .validacion-biometrica-content {
+        flex: 1;
+    }
+}

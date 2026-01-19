@@ -1,0 +1,481 @@
+/* ==========================================
+   APP CONTAINER - Diseño Mobile First
+   ========================================== */
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    /* Dynamic viewport height for mobile */
+    width: 100%;
+    margin: 0;
+    background: white;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
+/* ==========================================
+   HEADER
+   ========================================== */
+
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: white;
+    border-bottom: 1px solid var(--gray-100);
+    flex-shrink: 0;
+    z-index: 100;
+}
+
+.header-user {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.user-avatar-header {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+    aspect-ratio: 1 / 1;
+}
+
+.avatar-img-header {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+.user-name-header {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--gray-800);
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.header-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius);
+    border: none;
+    background: transparent;
+    color: var(--gray-500);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-base);
+}
+
+.header-btn:hover {
+    background: var(--gray-100);
+    color: var(--gray-700);
+}
+
+/* ==========================================
+   MAIN CONTENT
+   ========================================== */
+
+.app-main {
+    flex: 1;
+    padding: 0;
+    padding-bottom: 70px;
+    overflow: hidden;
+    position: relative;
+    min-height: 0;
+    /* Important for flex children */
+    touch-action: pan-y;
+    /* Ensure horizontal swipes are captured by JS */
+}
+
+.tabs-slider {
+    display: flex;
+    width: 300%;
+    /* 3 paneles */
+    height: 100%;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tab-content {
+    width: 33.333%;
+    flex-shrink: 0;
+    padding: 0.75rem;
+    height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    -webkit-overflow-scrolling: touch;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* ==========================================
+   CARDS
+   ========================================== */
+
+.card {
+    background: white;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--gray-200);
+    padding: 1rem;
+}
+
+/* Jornada Card */
+.jornada-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.jornada-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--gray-50);
+    border-bottom: 1px solid var(--gray-200);
+    color: var(--gray-600);
+    font-weight: 500;
+}
+
+.jornada-content {
+    padding: 1.25rem 1rem;
+}
+
+.jornada-empty {
+    text-align: center;
+    color: var(--gray-500);
+    font-size: 0.9375rem;
+}
+
+.jornada-marcaciones {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.jornada-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    background: var(--gray-50);
+}
+
+.jornada-item.entrada {
+    border-left: 3px solid var(--primary-500);
+}
+
+.jornada-item.salida {
+    border-left: 3px solid var(--error);
+}
+
+.jornada-tipo {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--gray-700);
+    text-transform: uppercase;
+    min-width: 70px;
+}
+
+.jornada-hora {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--gray-800);
+}
+
+.jornada-tardia {
+    margin-left: auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--error);
+    background: var(--error-light);
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--radius-full);
+}
+
+/* Historial Link */
+.historial-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: all var(--transition-base);
+    border: none;
+    width: 100%;
+    text-align: left;
+}
+
+.historial-link:hover {
+    background: var(--gray-50);
+}
+
+.historial-link-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--gray-700);
+    font-weight: 500;
+}
+
+.historial-link svg:last-child {
+    color: var(--gray-400);
+}
+
+/* Ubicación Card */
+.ubicacion-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+    border: 1px solid #6ee7b7;
+    color: #047857;
+    font-weight: 500;
+}
+
+.ubicacion-card svg:last-child {
+    margin-left: auto;
+    color: #10b981;
+}
+
+/* ==========================================
+   HISTORIAL TABLA
+   ========================================== */
+
+.historial-tabla-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.historial-tabla {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.historial-tabla th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--gray-500);
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.historial-tabla th:not(:first-child) {
+    text-align: center;
+}
+
+.historial-tabla td {
+    padding: 1rem;
+    font-size: 0.9375rem;
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.historial-tabla td:not(:first-child) {
+    text-align: center;
+    color: var(--gray-600);
+}
+
+.historial-tabla tr.hoy .fecha-col {
+    color: #16a34a;
+    font-weight: 600;
+}
+
+.historial-tabla td.tardia {
+    color: var(--error);
+    font-weight: 600;
+}
+
+.fecha-col {
+    font-weight: 500;
+    color: var(--gray-700);
+}
+
+/* ==========================================
+   BUTTONS
+   ========================================== */
+
+.btn-full {
+    width: 100%;
+    padding: 1rem;
+    font-size: 1rem;
+}
+
+.boton-ir-mapa {
+    width: 100%;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+    border: none;
+    border-radius: var(--radius-xl);
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.boton-ir-mapa:active {
+    transform: scale(0.98);
+}
+
+/* ==========================================
+   MARCACION WRAPPER
+   ========================================== */
+
+.marcacion-wrapper {
+    display: flex;
+    justify-content: center;
+    margin-top: 1rem;
+}
+
+/* ==========================================
+   MENU
+   ========================================== */
+
+.menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    color: var(--gray-700);
+    font-weight: 500;
+    width: 100%;
+    text-align: left;
+}
+
+.menu-item:hover {
+    background: var(--gray-50);
+}
+
+.menu-item svg:last-child {
+    margin-left: auto;
+    color: var(--gray-400);
+}
+
+.menu-item.danger {
+    color: var(--error);
+    border-color: var(--error-light);
+}
+
+.menu-item.danger:hover {
+    background: var(--error-light);
+}
+
+/* ==========================================
+   BOTTOM NAVIGATION
+   ========================================== */
+
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    justify-content: space-around;
+    background: white;
+    border-top: 1px solid var(--gray-200);
+    padding: 0.5rem 0;
+    z-index: 100;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.05);
+}
+
+.nav-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem 1.5rem;
+    border: none;
+    background: transparent;
+    color: var(--gray-400);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    border-radius: var(--radius);
+}
+
+.nav-tab span {
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.nav-tab.active {
+    color: #16a34a;
+}
+
+.nav-tab:hover:not(.active) {
+    color: var(--gray-600);
+}
+
+/* ==========================================
+   RESPONSIVE - Desktop View
+   ========================================== */
+
+@media (min-width: 768px) {
+    .app-container {
+        max-width: 480px;
+        margin: 2rem auto;
+        border-radius: var(--radius-2xl);
+        min-height: calc(100vh - 4rem);
+        max-height: calc(100vh - 4rem);
+        overflow: hidden;
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.1);
+    }
+
+    .bottom-nav {
+        position: absolute;
+        bottom: 0;
+        border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+    }
+}
