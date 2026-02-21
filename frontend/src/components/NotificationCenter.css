@@ -218,6 +218,123 @@
     }
 }
 
+/* ======= DAILY REPORT STYLES ======= */
+
+.notif-icon.daily-report {
+    background: linear-gradient(135deg, #dbeafe, #e0e7ff);
+    color: #3b82f6;
+}
+
+.daily-report-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem !important;
+    border-left: 3px solid #3b82f6;
+}
+
+.daily-report-item.unread {
+    background: linear-gradient(135deg, #f0f9ff, #eff6ff);
+}
+
+.daily-report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.report-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.report-badge {
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.report-badge.green {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.report-badge.yellow {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.report-badge.red {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.report-detail {
+    margin-top: 0.5rem;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 0.5rem;
+    animation: expandReport 0.3s ease;
+}
+
+.report-section {
+    margin-bottom: 0.5rem;
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.report-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    padding: 2px 0;
+    border-bottom: 1px solid #f8fafc;
+}
+
+.row-name {
+    font-weight: 600;
+    color: #334155;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.row-detail {
+    color: #64748b;
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+
+.row-sucursal {
+    color: #94a3b8;
+    font-size: 0.68rem;
+    white-space: nowrap;
+}
+
+@keyframes expandReport {
+    from {
+        opacity: 0;
+        max-height: 0;
+    }
+
+    to {
+        opacity: 1;
+        max-height: 600px;
+    }
+}
+
 /* Mobile responsive */
 @media (max-width: 480px) {
     .notif-dropdown {

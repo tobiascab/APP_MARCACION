@@ -30,8 +30,8 @@ export const NotificationProvider = ({ children }) => {
         client.onConnect = (frame) => {
             setConnected(true);
 
-            // Suscribirse a alertas globales (solo para ADMIN)
-            if (user.rol === 'ADMIN') {
+            // Suscribirse a alertas globales (ADMIN y ADMIN_SUCURSAL)
+            if (user.rol === 'ADMIN' || user.rol === 'ADMIN_SUCURSAL') {
                 client.subscribe('/topic/admin-alerts', (message) => {
                     const alert = JSON.parse(message.body);
                     addNotification(alert);

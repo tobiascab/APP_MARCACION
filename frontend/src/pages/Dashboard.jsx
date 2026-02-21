@@ -40,10 +40,11 @@ function Dashboard() {
     const [showProfile, setShowProfile] = useState(false);
     const [showJustificaciones, setShowJustificaciones] = useState(false);
 
-    const touchStartRef = useRef(0);
+    const touchStartRef = useRef({ x: 0, y: 0 });
     const isDraggingRef = useRef(false);
+    const directionLocked = useRef(null); // 'horizontal' | 'vertical' | null
     const sliderRef = useRef(null);
-    const minSwipeDistance = 50;
+    const minSwipeDistance = 40;
     const tabs = ['home', 'marcar', 'menu'];
 
     useEffect(() => {
@@ -61,20 +62,37 @@ function Dashboard() {
     const getActiveIndex = () => tabs.indexOf(activeTab);
 
     const onTouchStart = (e) => {
-        touchStartRef.current = e.targetTouches[0].clientX;
+        touchStartRef.current = {
+            x: e.targetTouches[0].clientX,
+            y: e.targetTouches[0].clientY
+        };
         isDraggingRef.current = true;
-        if (sliderRef.current) {
-            sliderRef.current.style.transition = 'none';
-        }
+        directionLocked.current = null;
     };
 
     const onTouchMove = (e) => {
         if (!isDraggingRef.current || !sliderRef.current) return;
 
         const currentX = e.targetTouches[0].clientX;
-        const diffX = currentX - touchStartRef.current;
-        const currentIndex = getActiveIndex();
+        const currentY = e.targetTouches[0].clientY;
+        const diffX = currentX - touchStartRef.current.x;
+        const diffY = currentY - touchStartRef.current.y;
 
+        // Detectar dirección solo una vez (dead-zone de 10px)
+        if (!directionLocked.current && (Math.abs(diffX) > 10 || Math.abs(diffY) > 10)) {
+            directionLocked.current = Math.abs(diffX) > Math.abs(diffY) ? 'horizontal' : 'vertical';
+            if (directionLocked.current === 'horizontal') {
+                sliderRef.current.style.transition = 'none';
+            }
+        }
+
+        // Si es scroll vertical, no interferir
+        if (directionLocked.current !== 'horizontal') return;
+
+        // Prevenir scroll vertical mientras hacemos swipe horizontal
+        e.preventDefault();
+
+        const currentIndex = getActiveIndex();
         let effectiveDiff = diffX;
         if ((currentIndex === 0 && diffX > 0) || (currentIndex === tabs.length - 1 && diffX < 0)) {
             effectiveDiff = diffX * 0.3;
@@ -88,8 +106,15 @@ function Dashboard() {
         if (!isDraggingRef.current || !sliderRef.current) return;
         isDraggingRef.current = false;
 
+        // Si fue scroll vertical, no hacer nada
+        if (directionLocked.current !== 'horizontal') {
+            directionLocked.current = null;
+            return;
+        }
+        directionLocked.current = null;
+
         const endX = e.changedTouches[0].clientX;
-        const diffX = endX - touchStartRef.current;
+        const diffX = endX - touchStartRef.current.x;
         const currentIndex = getActiveIndex();
         let nextIndex = currentIndex;
 
@@ -101,7 +126,7 @@ function Dashboard() {
             }
         }
 
-        sliderRef.current.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+        sliderRef.current.style.transition = 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)';
         sliderRef.current.style.transform = `translateX(-${nextIndex * 33.333}%)`;
 
         setTimeout(() => {
@@ -110,12 +135,13 @@ function Dashboard() {
                 sliderRef.current.style.transition = '';
                 sliderRef.current.style.transform = '';
             }
-        }, 300);
+        }, 370);
     };
 
     const onTouchCancel = () => {
         if (!isDraggingRef.current || !sliderRef.current) return;
         isDraggingRef.current = false;
+        directionLocked.current = null;
         const currentIndex = getActiveIndex();
         sliderRef.current.style.transition = 'transform 0.3s ease-out';
         sliderRef.current.style.transform = `translateX(-${currentIndex * 33.333}%)`;

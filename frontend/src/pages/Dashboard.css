@@ -107,8 +107,8 @@
     position: relative;
     min-height: 0;
     /* Important for flex children */
-    touch-action: pan-y;
-    /* Ensure horizontal swipes are captured by JS */
+    touch-action: pan-y pinch-zoom;
+    /* Allow vertical scroll + zoom, but capture horizontal for JS swipe */
 }
 
 .tabs-slider {

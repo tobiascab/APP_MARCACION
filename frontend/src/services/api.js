@@ -526,3 +526,57 @@ export const offlineService = {
         return response.data;
     },
 };
+
+// ==========================================
+// SERVICIO DE PAGOS Y DESCUENTOS
+// ==========================================
+
+export const pagosService = {
+    // Obtener resumen de pagos del mes (formato: '2026-02')
+    getResumen: async (mes) => {
+        const response = await api.get(`/admin/pagos/resumen?mes=${mes}`);
+        return response.data;
+    },
+
+    // Detalle de un empleado
+    getDetalleEmpleado: async (id, mes) => {
+        const response = await api.get(`/admin/pagos/empleado/${id}?mes=${mes}`);
+        return response.data;
+    },
+
+    // Actualizar salario de un empleado
+    actualizarSalario: async (id, salarioMensual) => {
+        const response = await api.put(`/admin/pagos/salario/${id}`, { salarioMensual });
+        return response.data;
+    },
+
+    // Actualizar salarios masivamente
+    actualizarSalariosMasivo: async (empleados) => {
+        const response = await api.put('/admin/pagos/salarios-masivo', empleados);
+        return response.data;
+    },
+};
+
+// ==========================================
+// SERVICIO DE IMPORTACIÓN DE USUARIOS
+// ==========================================
+
+export const importService = {
+    // Importar usuarios masivamente (array de objetos)
+    importarUsuarios: async (usuarios) => {
+        const response = await api.post('/admin/usuarios/importar', usuarios);
+        return response.data;
+    },
+};
+
+// ==========================================
+// SERVICIO DE REPORTES
+// ==========================================
+
+export const reportesService = {
+    // Disparar reporte de asistencia manual
+    generarReporteAsistencia: async () => {
+        const response = await api.post('/admin/reportes/asistencia-hoy');
+        return response.data;
+    },
+};

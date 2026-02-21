@@ -1,7 +1,8 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { adminService, marcacionService, authService, sucursalService, gestionService, preMarcacionService, trackingService, justificacionService, auditoriaService } from '../services/api';
+import { adminService, marcacionService, authService, sucursalService, gestionService, preMarcacionService, trackingService, justificacionService, auditoriaService, pagosService, importService } from '../services/api';
 import 'leaflet/dist/leaflet.css'; // Fix: Import Leaflet CSS to prevent render issues
+import { AdminPagos, AdminGestionUsuarios } from '../components/AdminModules';
 
 import html2pdf from 'html2pdf.js';
 import {
@@ -46,8 +47,8 @@ import {
     Menu,
     ArrowDownToLine,
     Radar,
-    FileText,
-    ScrollText
+    ScrollText,
+    AlertCircle
 } from 'lucide-react';
 
 import { MapContainer, TileLayer, Marker, useMapEvents, Circle, Popup } from 'react-leaflet';
@@ -3222,6 +3223,8 @@ function AdminConfiguracion() {
                     <Route path="marcacion" element={<AdminConfigMarcacion />} />
 
                     <Route path="desarrollo" element={<AdminDesarrollo />} />
+                    <Route path="pagos" element={<AdminPagos />} />
+                    <Route path="colaboradores" element={<AdminGestionUsuarios />} />
                     <Route path="*" element={<div className="empty-state-large"><h3>Módulo en desarrollo</h3><p>Esta sección estará disponible pronto</p></div>} />
                 </Routes>
             </div>
@@ -3230,34 +3233,239 @@ function AdminConfiguracion() {
 }
 
 function AdminConfigMarcacion() {
+    const [turnos, setTurnos] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [showForm, setShowForm] = useState(false);
+    const [editando, setEditando] = useState(null);
+    const [form, setForm] = useState({ nombre: '', horaEntrada: '08:00', horaSalida: '17:00', toleranciaMinutos: 10 });
+    const [guardando, setGuardando] = useState(false);
+
+    useEffect(() => { cargarTurnos(); }, []);
+
+    const cargarTurnos = async () => {
+        setLoading(true);
+        try {
+            const data = await gestionService.getAllTurnos();
+            setTurnos(data);
+        } catch (e) { console.error(e); }
+        setLoading(false);
+    };
+
+    const handleGuardar = async () => {
+        if (!form.nombre || !form.horaEntrada || !form.horaSalida) {
+            alert('Completá todos los campos obligatorios');
+            return;
+        }
+        setGuardando(true);
+        try {
+            if (editando) {
+                await gestionService.updateTurno(editando, form);
+            } else {
+                await gestionService.createTurno(form);
+            }
+            setShowForm(false);
+            setEditando(null);
+            setForm({ nombre: '', horaEntrada: '08:00', horaSalida: '17:00', toleranciaMinutos: 10 });
+            cargarTurnos();
+        } catch (e) {
+            alert('Error: ' + (e.response?.data?.error || e.message));
+        }
+        setGuardando(false);
+    };
+
+    const handleEditar = (turno) => {
+        setEditando(turno.id);
+        setForm({
+            nombre: turno.nombre,
+            horaEntrada: turno.horaEntrada || '08:00',
+            horaSalida: turno.horaSalida || '17:00',
+            toleranciaMinutos: turno.toleranciaMinutos != null ? turno.toleranciaMinutos : 10
+        });
+        setShowForm(true);
+    };
+
+    const handleEliminar = async (id) => {
+        if (!window.confirm('¿Eliminar este turno? Los empleados asignados quedarán sin turno.')) return;
+        try {
+            await gestionService.deleteTurno(id);
+            cargarTurnos();
+        } catch (e) { alert('Error: ' + (e.response?.data?.error || e.message)); }
+    };
+
+    const cardStyle = {
+        background: 'white', borderRadius: 16, padding: '1.25rem',
+        border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+    };
+
+    const inputStyle = {
+        width: '100%', padding: '0.6rem 0.75rem', borderRadius: 10,
+        border: '1px solid #e2e8f0', fontSize: '0.9rem', boxSizing: 'border-box'
+    };
+
+    const thStyle = {
+        padding: '0.75rem 1rem', textAlign: 'left', borderBottom: '2px solid #e2e8f0',
+        fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase',
+        letterSpacing: '0.05em', whiteSpace: 'nowrap'
+    };
+
+    const tdStyle = {
+        padding: '0.7rem 1rem', borderBottom: '1px solid #f1f5f9',
+        fontSize: '0.85rem', color: '#334155'
+    };
+
     return (
-        <div className="marcacion-config">
-            <div className="config-card-header">
-                <h3>Configuración padrón de marcación</h3>
-                <button className="btn btn-primary">+ Crear configuración</button>
+        <div style={{ padding: '1rem' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Clock size={26} style={{ color: '#8b5cf6' }} />
+                    Configuración de Turnos y Tolerancia
+                </h2>
+                <button onClick={() => { setShowForm(!showForm); setEditando(null); setForm({ nombre: '', horaEntrada: '08:00', horaSalida: '17:00', toleranciaMinutos: 10 }); }}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '0.5rem 1rem', borderRadius: 10, border: 'none',
+                        background: showForm ? '#ef4444' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                        color: 'white', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
+                    }}>
+                    {showForm ? <><X size={16} /> Cancelar</> : <><Plus size={16} /> Nuevo Turno</>}
+                </button>
             </div>
-            <div className="table-container">
-                <table className="data-table">
-                    <thead>
-                        <tr>
-                            <th>Título</th>
-                            <th className="text-center">Geolocalización y FaceID</th>
-                            <th className="text-center">Solo Geolocalización</th>
-                            <th className="text-center">Historial</th>
-                            <th>Opciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>Configuración General</strong></td>
-                            <td className="text-center"><span className="badge danger">No</span></td>
-                            <td className="text-center"><span className="badge success">Sí</span></td>
-                            <td className="text-center"><span className="badge success">Sí</span></td>
-                            <td><button className="action-btn"><Edit size={16} /></button></td>
-                        </tr>
-                    </tbody>
-                </table>
+
+            {/* Info de tolerancia */}
+            <div style={{ ...cardStyle, marginBottom: '1rem', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', borderColor: '#c4b5fd' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                    <AlertCircle size={20} style={{ color: '#7c3aed', flexShrink: 0, marginTop: 2 }} />
+                    <div>
+                        <h4 style={{ margin: '0 0 4px', fontWeight: 700, color: '#5b21b6', fontSize: '0.9rem' }}>¿Qué es la tolerancia?</h4>
+                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#6d28d9', lineHeight: 1.5 }}>
+                            La <strong>tolerancia</strong> define cuántos minutos después de la hora de entrada se permite marcar sin que se considere <strong>tardanza</strong>.
+                            Por ejemplo: si el turno empieza a las 08:00 y la tolerancia es <strong>10 minutos</strong>,
+                            un empleado que marca a las 08:09 se considera <strong>puntual</strong>, pero si marca a las 08:11 se registra como <strong>tardanza</strong>.
+                            Esta tolerancia se usa tanto en el reporte diario automático (8:30 AM) como en el cálculo de descuentos salariales.
+                        </p>
+                    </div>
+                </div>
             </div>
+
+            {/* Formulario */}
+            {showForm && (
+                <div style={{ ...cardStyle, marginBottom: '1rem', background: '#f8fafc' }}>
+                    <h3 style={{ margin: '0 0 1rem', fontSize: '1rem', fontWeight: 600 }}>
+                        {editando ? '✏️ Editar Turno' : '➕ Nuevo Turno'}
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                        <div>
+                            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Nombre del Turno*</label>
+                            <input style={inputStyle} value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} placeholder="ej: Turno Mañana" />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Hora Entrada*</label>
+                            <input style={inputStyle} type="time" value={form.horaEntrada} onChange={e => setForm({ ...form, horaEntrada: e.target.value })} />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Hora Salida*</label>
+                            <input style={inputStyle} type="time" value={form.horaSalida} onChange={e => setForm({ ...form, horaSalida: e.target.value })} />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7c3aed', display: 'block', marginBottom: 4 }}>
+                                ⏱️ Tolerancia (minutos)*
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    style={{ ...inputStyle, borderColor: '#c4b5fd', background: '#faf5ff' }}
+                                    type="number"
+                                    min="0"
+                                    max="60"
+                                    value={form.toleranciaMinutos}
+                                    onChange={e => setForm({ ...form, toleranciaMinutos: parseInt(e.target.value) || 0 })}
+                                    placeholder="10"
+                                />
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: '#8b5cf6' }}>
+                                Minutos de gracia antes de marcar tardanza
+                            </span>
+                        </div>
+                    </div>
+                    <button onClick={handleGuardar} disabled={guardando}
+                        style={{
+                            marginTop: '1rem', padding: '0.65rem 2rem', borderRadius: 10, border: 'none',
+                            background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: 'white',
+                            fontWeight: 700, cursor: 'pointer', opacity: guardando ? 0.7 : 1
+                        }}>
+                        {guardando ? 'Guardando...' : (editando ? 'Actualizar Turno' : 'Crear Turno')}
+                    </button>
+                </div>
+            )}
+
+            {/* Tabla de turnos */}
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: '3rem' }}>
+                    <div style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>
+                        <Loader2 size={32} style={{ color: '#8b5cf6' }} />
+                    </div>
+                </div>
+            ) : turnos.length === 0 ? (
+                <div style={{ ...cardStyle, textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+                    <Clock size={40} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
+                    <p>No hay turnos configurados. Creá uno para empezar.</p>
+                </div>
+            ) : (
+                <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ background: '#f8fafc' }}>
+                                <th style={thStyle}>Turno</th>
+                                <th style={{ ...thStyle, textAlign: 'center' }}>Hora Entrada</th>
+                                <th style={{ ...thStyle, textAlign: 'center' }}>Hora Salida</th>
+                                <th style={{ ...thStyle, textAlign: 'center', color: '#7c3aed' }}>⏱️ Tolerancia</th>
+                                <th style={{ ...thStyle, textAlign: 'center' }}>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {turnos.map(t => (
+                                <tr key={t.id}
+                                    style={{ transition: 'background 0.15s' }}
+                                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                    <td style={{ ...tdStyle, fontWeight: 600 }}>{t.nombre}</td>
+                                    <td style={{ ...tdStyle, textAlign: 'center', fontFamily: 'monospace', fontWeight: 600, color: '#059669' }}>
+                                        {t.horaEntrada || '-'}
+                                    </td>
+                                    <td style={{ ...tdStyle, textAlign: 'center', fontFamily: 'monospace', fontWeight: 600, color: '#dc2626' }}>
+                                        {t.horaSalida || '-'}
+                                    </td>
+                                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                        <span style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                                            padding: '4px 12px', borderRadius: 10,
+                                            background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)',
+                                            color: '#7c3aed', fontWeight: 700, fontSize: '0.85rem',
+                                            border: '1px solid #c4b5fd'
+                                        }}>
+                                            {t.toleranciaMinutos != null ? t.toleranciaMinutos : 10} min
+                                        </span>
+                                    </td>
+                                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                            <button onClick={() => handleEditar(t)}
+                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', padding: 4 }}
+                                                title="Editar turno">
+                                                <Edit size={16} />
+                                            </button>
+                                            <button onClick={() => handleEliminar(t.id)}
+                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4 }}
+                                                title="Eliminar turno">
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
         </div>
     );
 }
