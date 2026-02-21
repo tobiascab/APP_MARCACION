@@ -143,6 +143,37 @@ public class MarcacionController {
     }
 
     /**
+     * Sincronizar marcaciones guardadas offline.
+     * POST /api/marcaciones/sync-offline
+     * Recibe un array de marcaciones guardadas localmente y las procesa.
+     */
+    @PostMapping("/sync-offline")
+    public ResponseEntity<?> syncOffline(@RequestBody List<MarcacionRequest> marcaciones) {
+        try {
+            Long usuarioId = getUsuarioIdActual();
+            List<Map<String, Object>> resultados = new java.util.ArrayList<>();
+
+            for (MarcacionRequest request : marcaciones) {
+                try {
+                    MarcacionDTO marcacion = marcacionService.registrarMarcacion(usuarioId, request);
+                    resultados.add(Map.of("status", "ok", "marcacion", marcacion));
+                } catch (Exception e) {
+                    resultados.add(Map.of("status", "error", "message", e.getMessage()));
+                }
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Sincronización completada",
+                    "total", marcaciones.size(),
+                    "resultados", resultados));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Error en sincronización offline",
+                    "message", e.getMessage()));
+        }
+    }
+
+    /**
      * Obtiene el ID del usuario autenticado actualmente.
      */
     private Long getUsuarioIdActual() {

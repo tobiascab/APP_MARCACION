@@ -13,7 +13,8 @@ import {
     Search,
     Calendar,
     Shield,
-    History
+    History,
+    FileText
 } from 'lucide-react';
 import BotonMarcacion from '../components/BotonMarcacion';
 import HistorialMarcaciones from '../components/HistorialMarcaciones';
@@ -21,6 +22,9 @@ import MapaMarcacion from '../components/MapaMarcacion';
 import VistaHistorial from '../components/VistaHistorial';
 import VistaMarcacionMapa from '../components/VistaMarcacionMapa';
 import MiPerfil from '../components/MiPerfil';
+import GeofenceTracker from '../components/GeofenceTracker';
+import InstallPWABanner from '../components/InstallPWABanner';
+import MisJustificaciones from '../components/MisJustificaciones';
 import './Dashboard.css';
 
 function Dashboard() {
@@ -34,6 +38,7 @@ function Dashboard() {
     const [showFullHistory, setShowFullHistory] = useState(false);
     const [showMap, setShowMap] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
+    const [showJustificaciones, setShowJustificaciones] = useState(false);
 
     const touchStartRef = useRef(0);
     const isDraggingRef = useRef(false);
@@ -188,6 +193,10 @@ function Dashboard() {
 
     return (
         <div className="app-container">
+            {/* Tracker de geofence silencioso - invisible para el usuario */}
+            <GeofenceTracker />
+            {/* Banner de instalación PWA */}
+            <InstallPWABanner />
             {/* Header */}
             <header className="app-header">
                 <div className="header-user">
@@ -337,6 +346,11 @@ function Dashboard() {
                                 <span>Historial Completo</span>
                                 <ChevronRight size={18} />
                             </button>
+                            <button className="menu-item" onClick={() => setShowJustificaciones(true)}>
+                                <FileText size={20} />
+                                <span>Mis Justificaciones</span>
+                                <ChevronRight size={18} />
+                            </button>
                             <button className="menu-item danger" onClick={handleLogout}>
                                 <LogOut size={20} />
                                 <span>Cerrar Sesión</span>
@@ -395,6 +409,27 @@ function Dashboard() {
                     onClose={() => setShowProfile(false)}
                     onUpdate={cargarDatos}
                 />
+            )}
+
+            {/* Mis Justificaciones */}
+            {showJustificaciones && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: '#f8fafc', overflowY: 'auto'
+                }}>
+                    <div style={{
+                        display: 'flex', alignItems: 'center', padding: '1rem',
+                        background: 'white', borderBottom: '1px solid #e2e8f0',
+                        position: 'sticky', top: 0, zIndex: 2
+                    }}>
+                        <button onClick={() => setShowJustificaciones(false)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#3b82f6' }}>
+                            <ChevronRight size={24} style={{ transform: 'rotate(180deg)' }} />
+                        </button>
+                        <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, marginLeft: 8 }}>Mis Justificaciones</h2>
+                    </div>
+                    <MisJustificaciones />
+                </div>
             )}
         </div>
     );

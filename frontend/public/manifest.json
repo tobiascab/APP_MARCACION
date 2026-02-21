@@ -1,0 +1,27 @@
+{
+    "name": "RelojReducto - Sistema de Marcación",
+    "short_name": "RelojReducto",
+    "description": "Sistema de control de asistencia y marcación",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0f172a",
+    "theme_color": "#3b82f6",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "/logo.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/logo.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "permissions": [
+        "geolocation"
+    ]
+}

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/api';
-import { Eye, EyeOff, LogIn, Loader2, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, LogIn, Loader2, AlertCircle, MapPin, Shield, Clock } from 'lucide-react';
 import './Login.css';
 
 function Login() {
@@ -54,28 +54,42 @@ function Login() {
 
     return (
         <div className="login-container">
-            {/* Fondo decorativo */}
+            {/* Left Panel - Branding */}
             <div className="login-background">
                 <div className="bg-circle bg-circle-1"></div>
                 <div className="bg-circle bg-circle-2"></div>
                 <div className="bg-circle bg-circle-3"></div>
-            </div>
 
-            <div className="login-card animate-slideUp">
-                {/* Logo */}
-                <div className="login-logo-container">
+                <div className="login-brand-content">
                     <img
                         src="/logo.png"
                         alt="RelojReducto Logo"
-                        className="login-logo animate-float"
+                        className="brand-logo"
                     />
+                    <h2>
+                        Bienvenido a<br />
+                        <span>RelojReducto</span>
+                    </h2>
+                    <p>
+                        Tu tiempo importa. Regístralo fácil.
+                    </p>
+                    <div className="login-features">
+                        <div className="feature-pill">
+                            <MapPin /> Geolocalización
+                        </div>
+                        <div className="feature-pill">
+                            <Clock /> Tiempo Real
+                        </div>
+                        <div className="feature-pill">
+                            <Shield /> Autenticación Segura
+                        </div>
+                    </div>
                 </div>
+            </div>
 
-                {/* Título */}
-                <div className="login-header">
-                    <h1>¡Bienvenido!</h1>
-                    <p>Ingresa tus credenciales para continuar</p>
-                </div>
+            {/* Right Panel - Login Form */}
+            <div className="login-card animate-slideUp">
+
 
                 {/* Formulario */}
                 <form onSubmit={handleSubmit} className="login-form">

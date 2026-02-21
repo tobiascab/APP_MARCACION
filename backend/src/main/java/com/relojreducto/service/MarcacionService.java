@@ -46,6 +46,8 @@ public class MarcacionService {
     private static final LocalTime HORA_SALIDA = LocalTime.of(17, 0); // 5:00 PM
     private static final int MINUTOS_JORNADA = 590; // ~9.8 horas (de 7:10 a 17:00)
     private static final int DIAS_LABORALES_MES = 26; // Días laborales promedio
+    private static final int MINUTOS_COOLDOWN = 240; // 4 horas mínimo entre marcaciones del mismo tipo
+    private static final int MAX_MARCACIONES_DIA = 2; // Máximo 2 marcaciones por día (1 entrada + 1 salida)
 
     /**
      * Crea una nueva marcación para el usuario actual.
@@ -90,13 +92,49 @@ public class MarcacionService {
         LocalDateTime ahora = LocalDateTime.now();
         LocalTime horaActual = ahora.toLocalTime();
 
+        // === VALIDACIÓN ANTI-SPAM: Límite de marcaciones por día ===
+        List<Marcacion> marcacionesHoy = marcacionRepository.findMarcacionesDeHoy(usuarioId);
+
+        if (marcacionesHoy.size() >= MAX_MARCACIONES_DIA) {
+            throw new RuntimeException(
+                    "Ya completaste tu jornada de hoy (entrada y salida registradas). " +
+                            "Solo puedes realizar " + MAX_MARCACIONES_DIA + " marcaciones por día.");
+        }
+
+        // === VALIDACIÓN ANTI-SPAM: Cooldown entre marcaciones ===
+        if (!marcacionesHoy.isEmpty()) {
+            Marcacion ultimaMarcacion = marcacionesHoy.get(0); // La más reciente
+            long minutosDesdeUltima = ChronoUnit.MINUTES.between(
+                    ultimaMarcacion.getFechaHora(), ahora);
+
+            if (minutosDesdeUltima < MINUTOS_COOLDOWN) {
+                long minutosRestantes = MINUTOS_COOLDOWN - minutosDesdeUltima;
+                long horasRestantes = minutosRestantes / 60;
+                long minsRestantes = minutosRestantes % 60;
+
+                String tiempoRestante = horasRestantes > 0
+                        ? horasRestantes + "h " + minsRestantes + "min"
+                        : minsRestantes + " minutos";
+
+                throw new RuntimeException(
+                        "Ya registraste tu marcación de " + ultimaMarcacion.getTipo().name() +
+                                ". Podrás marcar nuevamente en " + tiempoRestante + ".");
+            }
+        }
+
         // Determinar el tipo de marcación
         Marcacion.TipoMarcacion tipo = determinarTipoMarcacion(usuarioId);
 
         // Validar horario de salida
         if (tipo == Marcacion.TipoMarcacion.SALIDA) {
             if (horaActual.isBefore(HORA_SALIDA)) {
-                throw new RuntimeException("¡Solo puedes marcar una vez antes de terminar tu horario laboral!");
+                long minutosParaSalida = ChronoUnit.MINUTES.between(horaActual, HORA_SALIDA);
+                long horas = minutosParaSalida / 60;
+                long mins = minutosParaSalida % 60;
+                throw new RuntimeException(
+                        "Aún no puedes marcar salida. Faltan " + horas + "h " + mins + "min para tu horario de salida ("
+                                +
+                                HORA_SALIDA + ").");
             }
         }
 

@@ -1,9 +1,11 @@
 package com.relojreducto.controller;
 
 import com.relojreducto.dto.MarcacionDTO;
+import com.relojreducto.dto.PreMarcacionDTO;
 import com.relojreducto.dto.UsuarioDTO;
 import com.relojreducto.entity.Usuario;
 import com.relojreducto.service.MarcacionService;
+import com.relojreducto.service.PreMarcacionService;
 import com.relojreducto.service.UsuarioService;
 import com.relojreducto.service.ReporteService;
 import com.relojreducto.repository.UsuarioRepository;
@@ -28,6 +30,7 @@ public class AdminController {
 
     private final UsuarioService usuarioService;
     private final MarcacionService marcacionService;
+    private final PreMarcacionService preMarcacionService;
     private final ReporteService reporteService;
     private final UsuarioRepository usuarioRepository;
 
@@ -35,9 +38,11 @@ public class AdminController {
     private String masterKey;
 
     public AdminController(UsuarioService usuarioService, MarcacionService marcacionService,
+            PreMarcacionService preMarcacionService,
             UsuarioRepository usuarioRepository, ReporteService reporteService) {
         this.usuarioService = usuarioService;
         this.marcacionService = marcacionService;
+        this.preMarcacionService = preMarcacionService;
         this.reporteService = reporteService;
         this.usuarioRepository = usuarioRepository;
     }
@@ -338,6 +343,49 @@ public class AdminController {
                     "error", "Error al resetear perfiles",
                     "message", "No se pudo completar la operación global."));
         }
+    }
+
+    // ===============================
+    // PRE-MARCACIONES (GEOFENCE)
+    // ===============================
+
+    /**
+     * Obtiene las pre-marcaciones de hoy.
+     * GET /api/admin/premarcaciones/hoy
+     */
+    @GetMapping("/premarcaciones/hoy")
+    public ResponseEntity<List<PreMarcacionDTO>> getPreMarcacionesHoy() {
+        return ResponseEntity.ok(preMarcacionService.getPreMarcacionesDeHoy());
+    }
+
+    /**
+     * Obtiene las pre-marcaciones por rango de fechas.
+     * GET /api/admin/premarcaciones/rango?inicio=2024-01-01&fin=2024-01-31
+     */
+    @GetMapping("/premarcaciones/rango")
+    public ResponseEntity<List<PreMarcacionDTO>> getPreMarcacionesByRango(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fin) {
+        Usuario actual = getUsuarioActualEntity();
+        if (actual.getRol() == Usuario.Rol.ADMIN_SUCURSAL && actual.getSucursal() != null) {
+            return ResponseEntity.ok(
+                    preMarcacionService.getPreMarcacionesBySucursalAndRango(
+                            actual.getSucursal().getId(), inicio, fin));
+        }
+        return ResponseEntity.ok(preMarcacionService.getPreMarcacionesByRango(inicio, fin));
+    }
+
+    /**
+     * Obtiene la primera pre-marcación del día para un usuario específico.
+     * GET /api/admin/premarcaciones/usuario/{usuarioId}/primera
+     */
+    @GetMapping("/premarcaciones/usuario/{usuarioId}/primera")
+    public ResponseEntity<?> getPrimeraPreMarcacion(@PathVariable Long usuarioId) {
+        PreMarcacionDTO dto = preMarcacionService.getPrimeraPreMarcacion(usuarioId);
+        if (dto == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(dto);
     }
 
     private Usuario getUsuarioActualEntity() {

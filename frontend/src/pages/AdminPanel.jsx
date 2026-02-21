@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { adminService, marcacionService, authService, sucursalService, gestionService } from '../services/api';
+import { adminService, marcacionService, authService, sucursalService, gestionService, preMarcacionService, trackingService, justificacionService, auditoriaService } from '../services/api';
 import 'leaflet/dist/leaflet.css'; // Fix: Import Leaflet CSS to prevent render issues
 
 import html2pdf from 'html2pdf.js';
@@ -44,7 +44,10 @@ import {
     ShieldAlert,
     Trash2,
     Menu,
-    ArrowDownToLine
+    ArrowDownToLine,
+    Radar,
+    FileText,
+    ScrollText
 } from 'lucide-react';
 
 import { MapContainer, TileLayer, Marker, useMapEvents, Circle, Popup } from 'react-leaflet';
@@ -330,6 +333,10 @@ function AdminPanel() {
         { path: '/admin/turnos', icon: CalendarDays, label: 'Gestión Turnos' },
         { path: '/admin/permisos', icon: CalendarCheck, label: 'Permisos/Ausencias' },
         { path: '/admin/reportes', icon: BarChart3, label: 'Centro Reportes' },
+        { path: '/admin/premarcaciones', icon: Radar, label: 'Pre-Marcaciones', adminOnly: true },
+        { path: '/admin/rastreo', icon: Navigation, label: 'Rastreo GPS', adminOnly: true },
+        { path: '/admin/justificaciones', icon: FileText, label: 'Justificaciones', adminOnly: true },
+        { path: '/admin/auditoria', icon: ScrollText, label: 'Auditoría', adminOnly: true },
         { path: '/admin/configuracion', icon: Settings, label: 'Configuraciones', adminOnly: true },
     ];
 
@@ -442,6 +449,10 @@ function AdminPanel() {
                     <Route path="permisos" element={<AdminPermisos />} />
                     <Route path="configuracion/*" element={<AdminConfiguracion />} />
                     <Route path="reportes" element={<AdminReportes />} />
+                    <Route path="premarcaciones" element={<AdminPreMarcaciones />} />
+                    <Route path="rastreo" element={<AdminRastreo />} />
+                    <Route path="justificaciones" element={<AdminJustificaciones />} />
+                    <Route path="auditoria" element={<AdminAuditoria />} />
 
                 </Routes>
             </main>
@@ -3929,7 +3940,992 @@ function SucursalModal({ sucursal, onClose, onSave }) {
     );
 }
 
+// ===========================================
+// PRE-MARCACIONES (GEOFENCE) - SOLO ADMIN
+// ===========================================
+
+function AdminPreMarcaciones() {
+    const [preMarcaciones, setPreMarcaciones] = useState([]);
+    const [marcaciones, setMarcaciones] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [fechaInicio, setFechaInicio] = useState(() => {
+        const d = new Date();
+        return d.toISOString().split('T')[0];
+    });
+    const [fechaFin, setFechaFin] = useState(() => {
+        const d = new Date();
+        return d.toISOString().split('T')[0];
+    });
+    const [filtro, setFiltro] = useState('');
+
+    useEffect(() => {
+        cargarDatos();
+    }, [fechaInicio, fechaFin]);
+
+    const cargarDatos = async () => {
+        setLoading(true);
+        try {
+            const [preMarcs, marcs] = await Promise.all([
+                preMarcacionService.getByRango(fechaInicio, fechaFin),
+                adminService.getMarcacionesByRango(fechaInicio, fechaFin)
+            ]);
+            setPreMarcaciones(preMarcs);
+            setMarcaciones(marcs);
+        } catch (error) {
+            console.error('Error cargando pre-marcaciones:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Agrupar por usuario: pre-marcación vs marcación oficial
+    const getComparacion = () => {
+        const usuarios = {};
+
+        // Agrupar pre-marcaciones por usuario+fecha
+        preMarcaciones.forEach(pm => {
+            const fecha = pm.fechaHoraDeteccion?.split('T')[0];
+            const key = `${pm.usuarioId}-${fecha}`;
+            if (!usuarios[key] || pm.fechaHoraDeteccion < usuarios[key].preMarcacion) {
+                usuarios[key] = {
+                    ...usuarios[key],
+                    usuarioId: pm.usuarioId,
+                    nombre: pm.nombreUsuario,
+                    sucursal: pm.nombreSucursal,
+                    fecha,
+                    preMarcacion: pm.fechaHoraDeteccion,
+                    distanciaMetros: pm.distanciaMetros,
+                    precisionGps: pm.precisionGps,
+                };
+            }
+        });
+
+        // Asociar marcaciones oficiales
+        marcaciones.forEach(m => {
+            if (m.tipo !== 'ENTRADA') return;
+            const fecha = m.fechaHora?.split('T')[0];
+            const key = `${m.usuarioId}-${fecha}`;
+            if (usuarios[key]) {
+                if (!usuarios[key].marcacionOficial || m.fechaHora < usuarios[key].marcacionOficial) {
+                    usuarios[key].marcacionOficial = m.fechaHora;
+                    usuarios[key].esTardia = m.esTardia;
+                    usuarios[key].minutosTarde = m.minutosTarde;
+                }
+            } else {
+                // Tiene marcación pero no pre-marcación
+                usuarios[key] = {
+                    usuarioId: m.usuarioId,
+                    nombre: m.nombreCompleto || m.nombreUsuario || 'Sin nombre',
+                    fecha,
+                    preMarcacion: null,
+                    marcacionOficial: m.fechaHora,
+                    esTardia: m.esTardia,
+                    minutosTarde: m.minutosTarde,
+                };
+            }
+        });
+
+        let result = Object.values(usuarios).sort((a, b) => {
+            if (a.fecha !== b.fecha) return b.fecha?.localeCompare(a.fecha);
+            return (a.nombre || '').localeCompare(b.nombre || '');
+        });
+
+        if (filtro) {
+            result = result.filter(r =>
+                r.nombre?.toLowerCase().includes(filtro.toLowerCase())
+            );
+        }
+
+        return result;
+    };
+
+    const formatTime = (isoString) => {
+        if (!isoString) return '—';
+        return new Date(isoString).toLocaleTimeString('es-PY', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    };
+
+    const getDiferencia = (pre, oficial) => {
+        if (!pre || !oficial) return null;
+        const diffMs = new Date(oficial) - new Date(pre);
+        const diffMin = Math.round(diffMs / 60000);
+        return diffMin;
+    };
+
+    const comparacion = getComparacion();
+    const conDiscrepancia = comparacion.filter(c => {
+        const diff = getDiferencia(c.preMarcacion, c.marcacionOficial);
+        return diff !== null && diff > 10;
+    });
+
+    return (
+        <div className="admin-content">
+            <header className="content-header">
+                <div className="header-title">
+                    <h1><Radar size={28} style={{ marginRight: 10, color: '#10b981', verticalAlign: 'middle' }} /> Pre-Marcaciones por Geofence</h1>
+                    <p>Detección automática de llegada — Comparación con marcación oficial</p>
+                </div>
+            </header>
+
+            {/* Stats Cards */}
+            <div className="stats-grid" style={{ marginBottom: '2rem' }}>
+                <div className="p-stat-card blue">
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon blue"><Radar size={22} /></div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Pre-Marcaciones</span>
+                            <span className="p-stat-value">{preMarcaciones.length}</span>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-stat-card purple">
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon purple"><Clock size={22} /></div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Marcaciones Oficiales</span>
+                            <span className="p-stat-value">{marcaciones.filter(m => m.tipo === 'ENTRADA').length}</span>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-stat-card pink">
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon pink"><AlertTriangle size={22} /></div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Discrepancias (&gt;10min)</span>
+                            <span className="p-stat-value">{conDiscrepancia.length}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Filtros */}
+            <div className="p-chart-card" style={{ marginBottom: '2rem' }}>
+                <div className="p-chart-header">
+                    <h3>Filtros</h3>
+                </div>
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', padding: '1rem' }}>
+                    <div>
+                        <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Desde</label>
+                        <input
+                            type="date"
+                            value={fechaInicio}
+                            onChange={(e) => setFechaInicio(e.target.value)}
+                            style={{ padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                        />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Hasta</label>
+                        <input
+                            type="date"
+                            value={fechaFin}
+                            onChange={(e) => setFechaFin(e.target.value)}
+                            style={{ padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                        />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                        <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Buscar colaborador</label>
+                        <div style={{ position: 'relative' }}>
+                            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                            <input
+                                type="text"
+                                placeholder="Nombre del colaborador..."
+                                value={filtro}
+                                onChange={(e) => setFiltro(e.target.value)}
+                                style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                            />
+                        </div>
+                    </div>
+                    <div style={{ alignSelf: 'flex-end' }}>
+                        <button onClick={cargarDatos} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 1rem' }}>
+                            <RefreshCw size={16} /> Actualizar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Tabla de comparación */}
+            <div className="p-chart-card">
+                <div className="p-chart-header">
+                    <h3>📊 Comparación: Llegada Real vs Marcación Oficial</h3>
+                </div>
+                {loading ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                        <Loader2 size={32} className="animate-spin" />
+                    </div>
+                ) : comparacion.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+                        <Radar size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
+                        <p>Sin pre-marcaciones para el rango seleccionado</p>
+                    </div>
+                ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                        <table className="premium-table" style={{ width: '100%' }}>
+                            <thead>
+                                <tr>
+                                    <th>Colaborador</th>
+                                    <th>Fecha</th>
+                                    <th>Sucursal</th>
+                                    <th style={{ color: '#10b981' }}>📍 Llegada Real</th>
+                                    <th style={{ color: '#3b82f6' }}>⏱️ Marcación Oficial</th>
+                                    <th>Diferencia</th>
+                                    <th>Distancia</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {comparacion.map((item, i) => {
+                                    const diff = getDiferencia(item.preMarcacion, item.marcacionOficial);
+                                    const esDiscrepante = diff !== null && diff > 10;
+                                    const sinMarcacion = !item.marcacionOficial;
+
+                                    return (
+                                        <tr key={i} style={{
+                                            background: esDiscrepante ? 'rgba(239, 68, 68, 0.04)' : sinMarcacion ? 'rgba(245, 158, 11, 0.04)' : 'transparent'
+                                        }}>
+                                            <td style={{ fontWeight: 600 }}>{item.nombre}</td>
+                                            <td>{item.fecha}</td>
+                                            <td>{item.sucursal || '—'}</td>
+                                            <td>
+                                                <span style={{
+                                                    color: '#10b981',
+                                                    fontWeight: 700,
+                                                    fontSize: '0.95rem'
+                                                }}>
+                                                    {formatTime(item.preMarcacion)}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span style={{
+                                                    color: item.marcacionOficial ? '#3b82f6' : '#f59e0b',
+                                                    fontWeight: 700,
+                                                    fontSize: '0.95rem'
+                                                }}>
+                                                    {formatTime(item.marcacionOficial)}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                {diff !== null ? (
+                                                    <span style={{
+                                                        padding: '2px 8px',
+                                                        borderRadius: 6,
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 700,
+                                                        background: esDiscrepante ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                                                        color: esDiscrepante ? '#ef4444' : '#10b981'
+                                                    }}>
+                                                        {diff > 0 ? `+${diff}min` : `${diff}min`}
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ color: '#94a3b8' }}>—</span>
+                                                )}
+                                            </td>
+                                            <td>
+                                                {item.distanciaMetros != null ? (
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                                        {Math.round(item.distanciaMetros)}m
+                                                    </span>
+                                                ) : '—'}
+                                            </td>
+                                            <td>
+                                                {esDiscrepante ? (
+                                                    <span style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        padding: '3px 10px',
+                                                        borderRadius: 20,
+                                                        background: 'rgba(239, 68, 68, 0.1)',
+                                                        color: '#ef4444',
+                                                        fontWeight: 700,
+                                                        fontSize: '0.8rem'
+                                                    }}>
+                                                        <AlertTriangle size={14} /> Sospechoso
+                                                    </span>
+                                                ) : sinMarcacion ? (
+                                                    <span style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        padding: '3px 10px',
+                                                        borderRadius: 20,
+                                                        background: 'rgba(245, 158, 11, 0.1)',
+                                                        color: '#f59e0b',
+                                                        fontWeight: 700,
+                                                        fontSize: '0.8rem'
+                                                    }}>
+                                                        <Clock size={14} /> Sin marcar
+                                                    </span>
+                                                ) : (
+                                                    <span style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        padding: '3px 10px',
+                                                        borderRadius: 20,
+                                                        background: 'rgba(16, 185, 129, 0.1)',
+                                                        color: '#10b981',
+                                                        fontWeight: 700,
+                                                        fontSize: '0.8rem'
+                                                    }}>
+                                                        <CheckCircle2 size={14} /> OK
+                                                    </span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+
 
 export default AdminPanel;
 
+// ===========================================
+// RASTREO GPS EN TIEMPO REAL - SOLO ADMIN
+// ===========================================
 
+function AdminRastreo() {
+    const [ubicaciones, setUbicaciones] = useState([]);
+    const [usuarios, setUsuarios] = useState([]);
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [ruta, setRuta] = useState([]);
+    const [fechaRuta, setFechaRuta] = useState(() => new Date().toISOString().split('T')[0]);
+    const [loading, setLoading] = useState(true);
+    const [autoRefresh, setAutoRefresh] = useState(true);
+    const intervalRef = useRef(null);
+
+    useEffect(() => {
+        cargarDatos();
+        cargarUsuarios();
+    }, []);
+
+    useEffect(() => {
+        if (autoRefresh) {
+            intervalRef.current = setInterval(cargarDatos, 30000); // cada 30 seg
+        }
+        return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    }, [autoRefresh]);
+
+    const cargarDatos = async () => {
+        try {
+            const data = await trackingService.getTiempoReal();
+            setUbicaciones(data);
+        } catch (error) {
+            console.error('Error cargando tracking:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const cargarUsuarios = async () => {
+        try {
+            const data = await adminService.getUsuariosActivos();
+            setUsuarios(data);
+        } catch (e) { /* */ }
+    };
+
+    const cargarRuta = async (userId) => {
+        try {
+            const data = await trackingService.getRuta(userId, fechaRuta);
+            setRuta(data);
+        } catch (e) { console.error(e); }
+    };
+
+    const handleSelectUser = (userId) => {
+        setSelectedUser(userId);
+        if (userId) cargarRuta(userId);
+        else setRuta([]);
+    };
+
+    useEffect(() => {
+        if (selectedUser) cargarRuta(selectedUser);
+    }, [fechaRuta]);
+
+    const formatTime = (iso) => {
+        if (!iso) return '';
+        return new Date(iso).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const tiempoDesde = (iso) => {
+        if (!iso) return '';
+        const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+        if (mins < 1) return 'Ahora';
+        if (mins < 60) return `Hace ${mins}min`;
+        return `Hace ${Math.floor(mins / 60)}h ${mins % 60}min`;
+    };
+
+    // Centro del mapa: primera ubicación o Paraguay
+    const centro = ubicaciones.length > 0
+        ? [ubicaciones[0].latitud, ubicaciones[0].longitud]
+        : [-25.2637, -57.5759];
+
+    return (
+        <div className="admin-content">
+            <header className="content-header">
+                <div className="header-title">
+                    <h1><Navigation size={28} style={{ marginRight: 10, color: '#3b82f6', verticalAlign: 'middle' }} /> Rastreo GPS en Tiempo Real</h1>
+                    <p>Ubicación de colaboradores para seguridad — Actualiza cada 30s</p>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', color: '#64748b', cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={autoRefresh}
+                            onChange={(e) => setAutoRefresh(e.target.checked)}
+                            style={{ width: 16, height: 16 }}
+                        />
+                        Auto-refresh
+                    </label>
+                    <button onClick={cargarDatos} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 1rem' }}>
+                        <RefreshCw size={16} /> Actualizar
+                    </button>
+                </div>
+            </header>
+
+            {/* Stats */}
+            <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+                <div className="p-stat-card blue">
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon blue"><Navigation size={22} /></div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Activos Ahora</span>
+                            <span className="p-stat-value">{ubicaciones.length}</span>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-stat-card purple">
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon purple"><Users size={22} /></div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Total Colaboradores</span>
+                            <span className="p-stat-value">{usuarios.length}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '1.5rem' }}>
+                {/* Mapa */}
+                <div className="p-chart-card" style={{ overflow: 'hidden' }}>
+                    <div className="p-chart-header">
+                        <h3>🗺️ Mapa en Tiempo Real</h3>
+                    </div>
+                    <div style={{ height: '500px' }}>
+                        {!loading && (
+                            <MapContainer
+                                center={centro}
+                                zoom={14}
+                                style={{ height: '100%', width: '100%' }}
+                            >
+                                <TileLayer
+                                    attribution='&copy; OpenStreetMap'
+                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                />
+
+                                {/* Marcadores de ubicación actual */}
+                                {ubicaciones.map((ub, i) => (
+                                    <Marker
+                                        key={`ub-${i}`}
+                                        position={[ub.latitud, ub.longitud]}
+                                        icon={L.divIcon({
+                                            className: 'custom-tracking-marker',
+                                            html: `<div style="
+                                                background: #3b82f6;
+                                                color: white;
+                                                border-radius: 50%;
+                                                width: 36px;
+                                                height: 36px;
+                                                display: flex;
+                                                align-items: center;
+                                                justify-content: center;
+                                                font-size: 12px;
+                                                font-weight: 700;
+                                                border: 3px solid white;
+                                                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                                            ">${ub.nombreUsuario?.split(' ').map(n => n[0]).join('').slice(0, 2)}</div>`,
+                                            iconSize: [36, 36],
+                                            iconAnchor: [18, 18]
+                                        })}
+                                    >
+                                        <Popup>
+                                            <div style={{ minWidth: 200 }}>
+                                                <strong style={{ fontSize: '1rem' }}>{ub.nombreUsuario}</strong>
+                                                <br />
+                                                <span style={{ color: '#64748b', fontSize: '0.85rem' }}>
+                                                    📍 {ub.latitud?.toFixed(5)}, {ub.longitud?.toFixed(5)}
+                                                </span>
+                                                <br />
+                                                <span style={{ color: '#3b82f6', fontWeight: 600 }}>
+                                                    ⏰ {formatTime(ub.fechaHora)} ({tiempoDesde(ub.fechaHora)})
+                                                </span>
+                                                {ub.bateria != null && (
+                                                    <><br /><span>🔋 Batería: {ub.bateria}%</span></>
+                                                )}
+                                                {ub.precisionGps != null && (
+                                                    <><br /><span>🎯 Precisión: {Math.round(ub.precisionGps)}m</span></>
+                                                )}
+                                            </div>
+                                        </Popup>
+                                    </Marker>
+                                ))}
+
+                                {/* Línea de ruta si hay seleccionado */}
+                                {ruta.length > 1 && (() => {
+                                    const positions = ruta.map(r => [r.latitud, r.longitud]);
+                                    return (
+                                        <>
+                                            {positions.map((pos, idx) => (
+                                                <Circle
+                                                    key={`ruta-${idx}`}
+                                                    center={pos}
+                                                    radius={5}
+                                                    pathOptions={{
+                                                        color: idx === 0 ? '#10b981' : idx === positions.length - 1 ? '#ef4444' : '#3b82f6',
+                                                        fillColor: idx === 0 ? '#10b981' : idx === positions.length - 1 ? '#ef4444' : '#3b82f6',
+                                                        fillOpacity: 0.8
+                                                    }}
+                                                >
+                                                    <Popup>
+                                                        {idx === 0 ? '🟢 Inicio' : idx === positions.length - 1 ? '🔴 Último' : `Punto ${idx}`}
+                                                        <br />{formatTime(ruta[idx].fechaHora)}
+                                                    </Popup>
+                                                </Circle>
+                                            ))}
+                                        </>
+                                    );
+                                })()}
+                            </MapContainer>
+                        )}
+                    </div>
+                </div>
+
+                {/* Panel lateral */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {/* Historial de ruta */}
+                    <div className="p-chart-card">
+                        <div className="p-chart-header">
+                            <h3>🛤️ Historial de Ruta</h3>
+                        </div>
+                        <div style={{ padding: '1rem' }}>
+                            <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Colaborador</label>
+                            <select
+                                value={selectedUser || ''}
+                                onChange={(e) => handleSelectUser(e.target.value ? Number(e.target.value) : null)}
+                                style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem', marginBottom: '0.75rem' }}
+                            >
+                                <option value="">Seleccionar...</option>
+                                {usuarios.map(u => (
+                                    <option key={u.id} value={u.id}>{u.nombreCompleto}</option>
+                                ))}
+                            </select>
+
+                            <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Fecha</label>
+                            <input
+                                type="date"
+                                value={fechaRuta}
+                                onChange={(e) => setFechaRuta(e.target.value)}
+                                style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                            />
+
+                            {ruta.length > 0 && (
+                                <div style={{ marginTop: '1rem', fontSize: '0.85rem', color: '#475569' }}>
+                                    <p><strong>{ruta.length}</strong> puntos registrados</p>
+                                    <p>🟢 Inicio: <strong>{formatTime(ruta[0]?.fechaHora)}</strong></p>
+                                    <p>🔴 Último: <strong>{formatTime(ruta[ruta.length - 1]?.fechaHora)}</strong></p>
+                                </div>
+                            )}
+
+                            {selectedUser && ruta.length === 0 && (
+                                <p style={{ marginTop: '1rem', color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center' }}>
+                                    Sin registros para esta fecha
+                                </p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Lista de usuarios en línea */}
+                    <div className="p-chart-card" style={{ flex: 1, overflow: 'hidden' }}>
+                        <div className="p-chart-header">
+                            <h3>🟢 En Línea ({ubicaciones.length})</h3>
+                        </div>
+                        <div style={{ maxHeight: 250, overflowY: 'auto', padding: '0.5rem' }}>
+                            {ubicaciones.length === 0 ? (
+                                <p style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem 0', fontSize: '0.85rem' }}>
+                                    Ningún colaborador con tracking activo
+                                </p>
+                            ) : (
+                                ubicaciones.map((ub, i) => (
+                                    <div
+                                        key={i}
+                                        onClick={() => handleSelectUser(ub.usuarioId)}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.75rem',
+                                            padding: '0.6rem 0.75rem',
+                                            borderRadius: 10,
+                                            cursor: 'pointer',
+                                            background: selectedUser === ub.usuarioId ? 'rgba(59,130,246,0.08)' : 'transparent',
+                                            borderBottom: '1px solid #f1f5f9',
+                                            transition: 'background 0.2s'
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: 32, height: 32, borderRadius: '50%',
+                                            background: '#3b82f6', color: 'white',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: '0.75rem', fontWeight: 700, flexShrink: 0
+                                        }}>
+                                            {ub.nombreUsuario?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontWeight: 600, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {ub.nombreUsuario}
+                                            </div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                {tiempoDesde(ub.fechaHora)}
+                                                {ub.bateria != null && ` · 🔋${ub.bateria}%`}
+                                            </div>
+                                        </div>
+                                        <div style={{
+                                            width: 8, height: 8, borderRadius: '50%',
+                                            background: '#10b981', flexShrink: 0
+                                        }} />
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ===========================================
+// JUSTIFICACIONES - SOLO ADMIN
+// ===========================================
+
+function AdminJustificaciones() {
+    const [justificaciones, setJustificaciones] = useState([]);
+    const [pendientes, setPendientes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [vista, setVista] = useState('pendientes'); // pendientes | todas
+    const [modalRevisar, setModalRevisar] = useState(null);
+    const [comentario, setComentario] = useState('');
+
+    useEffect(() => { cargarDatos(); }, []);
+
+    const cargarDatos = async () => {
+        setLoading(true);
+        try {
+            const [todas, pend] = await Promise.all([
+                justificacionService.getTodas(),
+                justificacionService.getPendientes()
+            ]);
+            setJustificaciones(todas);
+            setPendientes(pend);
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
+    };
+
+    const handleRevisar = async (id, decision) => {
+        try {
+            await justificacionService.revisar(id, decision, comentario);
+            setModalRevisar(null);
+            setComentario('');
+            cargarDatos();
+        } catch (e) { alert('Error: ' + e.message); }
+    };
+
+    const lista = vista === 'pendientes' ? pendientes : justificaciones;
+
+    const getBadge = (estado) => {
+        const estilos = {
+            PENDIENTE: { bg: '#fef3c7', color: '#92400e', text: '⏳ Pendiente' },
+            APROBADA: { bg: '#d1fae5', color: '#065f46', text: '✅ Aprobada' },
+            RECHAZADA: { bg: '#fee2e2', color: '#991b1b', text: '❌ Rechazada' },
+        };
+        const s = estilos[estado] || estilos.PENDIENTE;
+        return <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600, background: s.bg, color: s.color }}>{s.text}</span>;
+    };
+
+    const getTipoBadge = (tipo) => {
+        const estilos = {
+            TARDANZA: { bg: '#fef3c7', color: '#92400e', text: '🕐 Tardanza' },
+            AUSENCIA: { bg: '#fee2e2', color: '#991b1b', text: '🚫 Ausencia' },
+            SALIDA_TEMPRANA: { bg: '#dbeafe', color: '#1e40af', text: '🚪 Salida temprana' },
+        };
+        const s = estilos[tipo] || { bg: '#f1f5f9', color: '#334155', text: tipo };
+        return <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600, background: s.bg, color: s.color }}>{s.text}</span>;
+    };
+
+    return (
+        <div className="admin-content">
+            <header className="content-header">
+                <div className="header-title">
+                    <h1><FileText size={28} style={{ marginRight: 10, color: '#8b5cf6', verticalAlign: 'middle' }} /> Justificaciones</h1>
+                    <p>Gestión de justificaciones de tardanza y ausencia</p>
+                </div>
+            </header>
+
+            {/* Stats */}
+            <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+                <div className="p-stat-card orange" onClick={() => setVista('pendientes')} style={{ cursor: 'pointer', border: vista === 'pendientes' ? '2px solid #f59e0b' : '2px solid transparent' }}>
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon orange"><FileText size={22} /></div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Pendientes</span>
+                            <span className="p-stat-value">{pendientes.length}</span>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-stat-card blue" onClick={() => setVista('todas')} style={{ cursor: 'pointer', border: vista === 'todas' ? '2px solid #3b82f6' : '2px solid transparent' }}>
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon blue"><ScrollText size={22} /></div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Total</span>
+                            <span className="p-stat-value">{justificaciones.length}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Tabla */}
+            <div className="p-chart-card">
+                <div className="p-chart-header">
+                    <h3>{vista === 'pendientes' ? '⏳ Pendientes de revisión' : '📋 Todas las justificaciones'}</h3>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                    <table className="premium-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr>
+                                <th style={thStyle}>Colaborador</th>
+                                <th style={thStyle}>Fecha</th>
+                                <th style={thStyle}>Tipo</th>
+                                <th style={thStyle}>Motivo</th>
+                                <th style={thStyle}>Estado</th>
+                                <th style={thStyle}>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {loading ? (
+                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>Cargando...</td></tr>
+                            ) : lista.length === 0 ? (
+                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                                    {vista === 'pendientes' ? '✅ No hay justificaciones pendientes' : 'Sin justificaciones registradas'}
+                                </td></tr>
+                            ) : lista.map((j, i) => (
+                                <tr key={j.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={tdStyle}><strong>{j.nombreUsuario}</strong></td>
+                                    <td style={tdStyle}>{j.fecha}</td>
+                                    <td style={tdStyle}>{getTipoBadge(j.tipo)}</td>
+                                    <td style={{ ...tdStyle, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.motivo}</td>
+                                    <td style={tdStyle}>{getBadge(j.estado)}</td>
+                                    <td style={tdStyle}>
+                                        {j.estado === 'PENDIENTE' ? (
+                                            <div style={{ display: 'flex', gap: 6 }}>
+                                                <button
+                                                    onClick={() => { setModalRevisar(j); setComentario(''); }}
+                                                    style={{ padding: '4px 12px', borderRadius: 8, border: 'none', background: '#10b981', color: 'white', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
+                                                >Revisar</button>
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                                                {j.revisadoPor && `Por: ${j.revisadoPor}`}
+                                            </span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Modal de revisión */}
+            {modalRevisar && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+                    onClick={() => setModalRevisar(null)}>
+                    <div style={{ background: 'white', borderRadius: 20, padding: '2rem', maxWidth: 480, width: '90%', boxShadow: '0 25px 60px rgba(0,0,0,0.3)' }}
+                        onClick={e => e.stopPropagation()}>
+                        <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem' }}>📋 Revisar Justificación</h3>
+                        <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: 12, marginBottom: '1rem', fontSize: '0.9rem' }}>
+                            <p><strong>Colaborador:</strong> {modalRevisar.nombreUsuario}</p>
+                            <p><strong>Fecha:</strong> {modalRevisar.fecha}</p>
+                            <p><strong>Tipo:</strong> {modalRevisar.tipo}</p>
+                            <p><strong>Motivo:</strong> {modalRevisar.motivo}</p>
+                            {modalRevisar.evidenciaUrl && (
+                                <p><strong>Evidencia:</strong> <a href={modalRevisar.evidenciaUrl} target="_blank" rel="noopener noreferrer">Ver adjunto</a></p>
+                            )}
+                        </div>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Comentario (opcional)</label>
+                        <textarea
+                            value={comentario}
+                            onChange={(e) => setComentario(e.target.value)}
+                            placeholder="Agregar comentario..."
+                            style={{ width: '100%', padding: '0.75rem', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: '0.9rem', minHeight: 80, resize: 'vertical', marginBottom: '1rem' }}
+                        />
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button
+                                onClick={() => handleRevisar(modalRevisar.id, 'APROBAR')}
+                                style={{ flex: 1, padding: '0.75rem', borderRadius: 12, border: 'none', background: '#10b981', color: 'white', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}
+                            >✅ Aprobar</button>
+                            <button
+                                onClick={() => handleRevisar(modalRevisar.id, 'RECHAZAR')}
+                                style={{ flex: 1, padding: '0.75rem', borderRadius: 12, border: 'none', background: '#ef4444', color: 'white', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}
+                            >❌ Rechazar</button>
+                        </div>
+                        <button
+                            onClick={() => setModalRevisar(null)}
+                            style={{ width: '100%', marginTop: '0.75rem', padding: '0.5rem', borderRadius: 10, border: '1px solid #e2e8f0', background: 'transparent', color: '#64748b', fontSize: '0.85rem', cursor: 'pointer' }}
+                        >Cancelar</button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+const thStyle = { padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '2px solid #e2e8f0' };
+const tdStyle = { padding: '0.75rem 1rem', fontSize: '0.88rem', color: '#334155' };
+
+// ===========================================
+// AUDITORÍA - SOLO ADMIN
+// ===========================================
+
+function AdminAuditoria() {
+    const [logs, setLogs] = useState([]);
+    const [stats, setStats] = useState({});
+    const [loading, setLoading] = useState(true);
+    const [fechaInicio, setFechaInicio] = useState(() => {
+        const d = new Date(); d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0];
+    });
+    const [fechaFin, setFechaFin] = useState(() => new Date().toISOString().split('T')[0]);
+
+    useEffect(() => { cargarDatos(); }, []);
+
+    const cargarDatos = async () => {
+        setLoading(true);
+        try {
+            const [logsData, statsData] = await Promise.all([
+                auditoriaService.getByRango(fechaInicio, fechaFin),
+                auditoriaService.getStats()
+            ]);
+            setLogs(logsData);
+            setStats(statsData);
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
+    };
+
+    const getAccionBadge = (tipo) => {
+        const colores = {
+            CREAR: { bg: '#d1fae5', color: '#065f46' },
+            MODIFICAR: { bg: '#dbeafe', color: '#1e40af' },
+            ELIMINAR: { bg: '#fee2e2', color: '#991b1b' },
+            LOGIN: { bg: '#f3e8ff', color: '#6b21a8' },
+            RESET: { bg: '#fef3c7', color: '#92400e' },
+            APROBAR: { bg: '#d1fae5', color: '#065f46' },
+            RECHAZAR: { bg: '#fee2e2', color: '#991b1b' },
+        };
+        const c = colores[tipo] || { bg: '#f1f5f9', color: '#475569' };
+        return <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700, background: c.bg, color: c.color }}>{tipo}</span>;
+    };
+
+    const formatFecha = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return d.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' }) +
+            ' ' + d.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    };
+
+    return (
+        <div className="admin-content">
+            <header className="content-header">
+                <div className="header-title">
+                    <h1><ScrollText size={28} style={{ marginRight: 10, color: '#8b5cf6', verticalAlign: 'middle' }} /> Auditoría del Sistema</h1>
+                    <p>Registro de todas las acciones administrativas — Cumplimiento regulatorio</p>
+                </div>
+            </header>
+
+            {/* Stats */}
+            <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+                {Object.entries(stats).slice(0, 4).map(([key, value]) => (
+                    <div key={key} className="p-stat-card blue">
+                        <div className="p-stat-header">
+                            <div className="p-stat-info">
+                                <span className="p-stat-label">{key}</span>
+                                <span className="p-stat-value">{value}</span>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Filtros */}
+            <div className="p-chart-card" style={{ marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', gap: '1rem', padding: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Desde</label>
+                        <input type="date" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)}
+                            style={{ padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Hasta</label>
+                        <input type="date" value={fechaFin} onChange={e => setFechaFin(e.target.value)}
+                            style={{ padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
+                    </div>
+                    <button onClick={cargarDatos} className="btn-premium" style={{ padding: '0.5rem 1.5rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Search size={16} /> Buscar
+                    </button>
+                    <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>{logs.length} registros encontrados</span>
+                </div>
+            </div>
+
+            {/* Tabla de auditoría */}
+            <div className="p-chart-card">
+                <div style={{ overflowX: 'auto', maxHeight: 600, overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: 'white', zIndex: 2 }}>
+                            <tr>
+                                <th style={thStyle}>Fecha/Hora</th>
+                                <th style={thStyle}>Usuario</th>
+                                <th style={thStyle}>Acción</th>
+                                <th style={thStyle}>Entidad</th>
+                                <th style={thStyle}>Descripción</th>
+                                <th style={thStyle}>IP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {loading ? (
+                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>Cargando...</td></tr>
+                            ) : logs.length === 0 ? (
+                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>Sin registros en este rango</td></tr>
+                            ) : logs.map((log, i) => (
+                                <tr key={log.id || i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ ...tdStyle, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{formatFecha(log.fechaHora)}</td>
+                                    <td style={tdStyle}><strong>{log.usuario}</strong></td>
+                                    <td style={tdStyle}>{getAccionBadge(log.tipoAccion)}</td>
+                                    <td style={tdStyle}><span style={{ fontSize: '0.8rem', color: '#64748b' }}>{log.entidad} {log.entidadId > 0 ? `#${log.entidadId}` : ''}</span></td>
+                                    <td style={{ ...tdStyle, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.descripcion}</td>
+                                    <td style={{ ...tdStyle, fontSize: '0.78rem', color: '#94a3b8', fontFamily: 'monospace' }}>{log.ipAddress}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+}

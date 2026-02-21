@@ -248,17 +248,23 @@ export const adminService = {
     },
 
     resetMarcaciones: async () => {
-        const response = await api.delete('/admin/marcaciones/reset');
+        const response = await api.delete('/admin/marcaciones/reset', {
+            headers: { 'X-Master-Key': 'RELOJ-REDUCTO-MASTER-2024' }
+        });
         return response.data;
     },
 
     resetPerfil: async (id) => {
-        const response = await api.post(`/admin/usuarios/${id}/reset-perfil`);
+        const response = await api.post(`/admin/usuarios/${id}/reset-perfil`, null, {
+            headers: { 'X-Master-Key': 'RELOJ-REDUCTO-MASTER-2024' }
+        });
         return response.data;
     },
 
     resetAllProfiles: async () => {
-        const response = await api.delete('/admin/usuarios/reset-perfiles-global');
+        const response = await api.delete('/admin/usuarios/reset-perfiles-global', {
+            headers: { 'X-Master-Key': 'RELOJ-REDUCTO-MASTER-2024' }
+        });
         return response.data;
     },
 };
@@ -377,3 +383,146 @@ export const gestionService = {
 
 export default api;
 
+// ==========================================
+// SERVICIO DE PRE-MARCACIÓN (GEOFENCE)
+// ==========================================
+
+export const preMarcacionService = {
+    // Check-in silencioso de ubicación (llamado por el empleado, invisible)
+    checkin: async (latitud, longitud, accuracy) => {
+        try {
+            const response = await api.post('/premarcacion/checkin', {
+                latitud,
+                longitud,
+                accuracy
+            });
+            return response.data;
+        } catch (error) {
+            // Silencioso - no reportar errores al usuario
+            return { status: 'error' };
+        }
+    },
+
+    // Admin: Obtener pre-marcaciones de hoy
+    getHoy: async () => {
+        const response = await api.get('/admin/premarcaciones/hoy');
+        return response.data;
+    },
+
+    // Admin: Obtener pre-marcaciones por rango de fechas
+    getByRango: async (inicio, fin) => {
+        const response = await api.get(`/admin/premarcaciones/rango?inicio=${inicio}&fin=${fin}`);
+        return response.data;
+    },
+
+    // Admin: Obtener primera pre-marcación del día para un usuario
+    getPrimera: async (usuarioId) => {
+        const response = await api.get(`/admin/premarcaciones/usuario/${usuarioId}/primera`);
+        return response.data;
+    },
+};
+
+// ==========================================
+// SERVICIO DE TRACKING (UBICACIÓN EN TIEMPO REAL)
+// ==========================================
+
+export const trackingService = {
+    // Admin: Obtener mapa en tiempo real (última ubicación de cada usuario)
+    getTiempoReal: async () => {
+        const response = await api.get('/tracking/admin/tiempo-real');
+        return response.data;
+    },
+
+    // Admin: Historial de ruta de un usuario en una fecha
+    getRuta: async (usuarioId, fecha = null) => {
+        const url = fecha
+            ? `/tracking/admin/ruta/${usuarioId}?fecha=${fecha}`
+            : `/tracking/admin/ruta/${usuarioId}`;
+        const response = await api.get(url);
+        return response.data;
+    },
+};
+
+// ==========================================
+// SERVICIO DE JUSTIFICACIONES
+// ==========================================
+
+export const justificacionService = {
+    // Empleado: crear justificación
+    crear: async (tipo, fecha, motivo, evidenciaUrl = null) => {
+        const response = await api.post('/justificaciones', { tipo, fecha, motivo, evidenciaUrl });
+        return response.data;
+    },
+
+    // Empleado: ver mis justificaciones
+    getMis: async () => {
+        const response = await api.get('/justificaciones/mis');
+        return response.data;
+    },
+
+    // Admin: ver todas
+    getTodas: async () => {
+        const response = await api.get('/justificaciones/admin/todas');
+        return response.data;
+    },
+
+    // Admin: ver pendientes
+    getPendientes: async () => {
+        const response = await api.get('/justificaciones/admin/pendientes');
+        return response.data;
+    },
+
+    // Admin: contar pendientes (badge)
+    contarPendientes: async () => {
+        const response = await api.get('/justificaciones/admin/pendientes/count');
+        return response.data;
+    },
+
+    // Admin: aprobar/rechazar
+    revisar: async (id, decision, comentario = '') => {
+        const response = await api.put(`/justificaciones/admin/${id}/revisar`, { decision, comentario });
+        return response.data;
+    },
+};
+
+// ==========================================
+// SERVICIO DE AUDITORÍA
+// ==========================================
+
+export const auditoriaService = {
+    // Obtener log paginado
+    getLogs: async (page = 0, size = 50) => {
+        const response = await api.get(`/admin/auditoria?page=${page}&size=${size}`);
+        return response.data;
+    },
+
+    // Por rango de fecha
+    getByRango: async (inicio, fin) => {
+        const response = await api.get(`/admin/auditoria/rango?inicio=${inicio}&fin=${fin}`);
+        return response.data;
+    },
+
+    // Por usuario
+    getByUsuario: async (usuarioId) => {
+        const response = await api.get(`/admin/auditoria/usuario/${usuarioId}`);
+        return response.data;
+    },
+
+    // Estadísticas
+    getStats: async () => {
+        const response = await api.get('/admin/auditoria/stats');
+        return response.data;
+    },
+};
+
+// ==========================================
+// SYNC OFFLINE
+// ==========================================
+
+export const offlineService = {
+    // Sincronizar marcaciones guardadas offline
+    syncMarcaciones: async (marcaciones) => {
+        const response = await api.post('/marcaciones/sync-offline', marcaciones);
+        return response.data;
+    },
+};
