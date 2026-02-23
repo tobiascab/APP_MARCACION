@@ -134,13 +134,14 @@ export const authService = {
 
 export const marcacionService = {
     // Registrar una nueva marcación
-    registrar: async (latitud, longitud, dispositivo = null, accuracy = null, isMocked = false) => {
+    registrar: async (latitud, longitud, dispositivo = null, accuracy = null, isMocked = false, deviceFingerprint = null) => {
         const response = await api.post('/marcaciones', {
             latitud,
             longitud,
             dispositivo,
             accuracy,
-            isMocked
+            isMocked,
+            deviceFingerprint
         });
         return response.data;
     },
@@ -204,6 +205,11 @@ export const adminService = {
 
     updateUsuario: async (id, usuario) => {
         const response = await api.put(`/admin/usuarios/${id}`, usuario);
+        return response.data;
+    },
+
+    changePassword: async (id, payload) => {
+        const response = await api.put(`/admin/usuarios/${id}/password`, payload);
         return response.data;
     },
 

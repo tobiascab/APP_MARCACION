@@ -47,6 +47,15 @@ public class Marcacion {
     @Column(name = "descuento_calculado", precision = 12, scale = 2)
     private BigDecimal descuentoCalculado = BigDecimal.ZERO;
 
+    @Column(name = "device_fingerprint", length = 50)
+    private String deviceFingerprint;
+
+    @Column(name = "dispositivo_compartido")
+    private Boolean dispositivoCompartido = false;
+
+    @Column(name = "dispositivo_compartido_con", length = 200)
+    private String dispositivoCompartidoCon;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "usuario_id", nullable = false)
     private Usuario usuario;
@@ -63,7 +72,8 @@ public class Marcacion {
 
     public Marcacion(Long id, LocalDateTime fechaHora, TipoMarcacion tipo, Double latitud, Double longitud,
             String direccion, String dispositivo, String ipAddress, String observacion, Boolean esTardia,
-            Integer minutosTarde, BigDecimal descuentoCalculado, Usuario usuario) {
+            Integer minutosTarde, BigDecimal descuentoCalculado, Usuario usuario,
+            String deviceFingerprint, Boolean dispositivoCompartido, String dispositivoCompartidoCon) {
         this.id = id;
         this.fechaHora = fechaHora;
         this.tipo = tipo;
@@ -77,6 +87,9 @@ public class Marcacion {
         this.minutosTarde = minutosTarde != null ? minutosTarde : 0;
         this.descuentoCalculado = descuentoCalculado != null ? descuentoCalculado : BigDecimal.ZERO;
         this.usuario = usuario;
+        this.deviceFingerprint = deviceFingerprint;
+        this.dispositivoCompartido = dispositivoCompartido != null ? dispositivoCompartido : false;
+        this.dispositivoCompartidoCon = dispositivoCompartidoCon;
     }
 
     // Getters and Setters
@@ -184,6 +197,30 @@ public class Marcacion {
         this.usuario = usuario;
     }
 
+    public String getDeviceFingerprint() {
+        return deviceFingerprint;
+    }
+
+    public void setDeviceFingerprint(String deviceFingerprint) {
+        this.deviceFingerprint = deviceFingerprint;
+    }
+
+    public Boolean getDispositivoCompartido() {
+        return dispositivoCompartido;
+    }
+
+    public void setDispositivoCompartido(Boolean dispositivoCompartido) {
+        this.dispositivoCompartido = dispositivoCompartido;
+    }
+
+    public String getDispositivoCompartidoCon() {
+        return dispositivoCompartidoCon;
+    }
+
+    public void setDispositivoCompartidoCon(String dispositivoCompartidoCon) {
+        this.dispositivoCompartidoCon = dispositivoCompartidoCon;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -202,6 +239,9 @@ public class Marcacion {
         private Integer minutosTarde = 0;
         private BigDecimal descuentoCalculado = BigDecimal.ZERO;
         private Usuario usuario;
+        private String deviceFingerprint;
+        private Boolean dispositivoCompartido = false;
+        private String dispositivoCompartidoCon;
 
         public Builder id(Long id) {
             this.id = id;
@@ -268,9 +308,25 @@ public class Marcacion {
             return this;
         }
 
+        public Builder deviceFingerprint(String deviceFingerprint) {
+            this.deviceFingerprint = deviceFingerprint;
+            return this;
+        }
+
+        public Builder dispositivoCompartido(Boolean dispositivoCompartido) {
+            this.dispositivoCompartido = dispositivoCompartido;
+            return this;
+        }
+
+        public Builder dispositivoCompartidoCon(String dispositivoCompartidoCon) {
+            this.dispositivoCompartidoCon = dispositivoCompartidoCon;
+            return this;
+        }
+
         public Marcacion build() {
             return new Marcacion(id, fechaHora, tipo, latitud, longitud, direccion, dispositivo, ipAddress, observacion,
-                    esTardia, minutosTarde, descuentoCalculado, usuario);
+                    esTardia, minutosTarde, descuentoCalculado, usuario,
+                    deviceFingerprint, dispositivoCompartido, dispositivoCompartidoCon);
         }
     }
 

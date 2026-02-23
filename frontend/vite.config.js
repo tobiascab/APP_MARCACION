@@ -11,19 +11,31 @@ export default defineConfig({
   define: {
     global: 'window',
   },
+  build: {
+    // No generar source maps en producción (seguridad)
+    sourcemap: false,
+    // Minificación con esbuild (incluido en Vite)
+    minify: 'esbuild',
+    // Eliminar console.log y debugger en producción
+    esbuild: undefined,
+  },
+  esbuild: {
+    drop: ['console', 'debugger'],
+    legalComments: 'none',
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
-    https: true,
+    https: false,
     proxy: {
       '/api': {
-        target: 'https://127.0.0.1:8443',
+        target: 'https://asistoreducto.arizar-ia.cloud',
         changeOrigin: true,
         secure: false
       },
       '/ws-notifications': {
-        target: 'https://127.0.0.1:8443',
+        target: 'https://asistoreducto.arizar-ia.cloud',
         ws: true,
         secure: false,
         changeOrigin: true

@@ -138,6 +138,26 @@
 .form-grid {
     display: grid;
     gap: 1rem;
+    grid-template-columns: 1fr;
+}
+
+@media (min-width: 481px) {
+    .btn-save {
+        font-size: 0.95rem; /* Slightly smaller text for desktop */
+    }
+    
+    .perfil-modal {
+        max-width: 600px;
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .form-group:nth-child(1),
+    .form-group:nth-child(6) {
+        grid-column: 1 / -1;
+    }
 }
 
 .form-group label {

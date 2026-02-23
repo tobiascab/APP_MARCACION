@@ -17,12 +17,7 @@ const InstallPWABanner = () => {
     useEffect(() => {
         // Detectar si ya fue descartado
         const dismissed = localStorage.getItem('pwa-banner-dismissed');
-        if (dismissed) {
-            const dismissedDate = new Date(dismissed);
-            const daysSince = (Date.now() - dismissedDate.getTime()) / (1000 * 60 * 60 * 24);
-            // Volver a mostrar después de 7 días
-            if (daysSince < 7) return;
-        }
+        if (dismissed) return; // Una vez cerrado, no volver a mostrar
 
         // Detectar si ya está instalada como PWA
         if (window.matchMedia('(display-mode: standalone)').matches) return;
@@ -95,12 +90,12 @@ const InstallPWABanner = () => {
                 animation: 'slideUpBanner 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
             }}>
                 <div style={{
-                    background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                    background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
                     borderRadius: 20,
                     padding: '1.25rem',
-                    boxShadow: '0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(59,130,246,0.2)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    color: 'white',
+                    boxShadow: '0 20px 60px rgba(0,0,0,0.12), 0 0 0 1px rgba(34,197,94,0.2)',
+                    border: '1px solid rgba(34,197,94,0.15)',
+                    color: '#14532d',
                     position: 'relative',
                     overflow: 'hidden',
                 }}>
@@ -111,7 +106,7 @@ const InstallPWABanner = () => {
                         right: -30,
                         width: 100,
                         height: 100,
-                        background: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%)',
+                        background: 'radial-gradient(circle, rgba(34,197,94,0.12) 0%, transparent 70%)',
                         borderRadius: '50%',
                     }} />
 
@@ -122,7 +117,7 @@ const InstallPWABanner = () => {
                             position: 'absolute',
                             top: 10,
                             right: 10,
-                            background: 'rgba(255,255,255,0.1)',
+                            background: 'rgba(0,0,0,0.05)',
                             border: 'none',
                             borderRadius: '50%',
                             width: 28,
@@ -131,7 +126,7 @@ const InstallPWABanner = () => {
                             alignItems: 'center',
                             justifyContent: 'center',
                             cursor: 'pointer',
-                            color: '#94a3b8',
+                            color: '#6b7280',
                         }}
                     >
                         <X size={14} />
@@ -143,12 +138,12 @@ const InstallPWABanner = () => {
                             width: 52,
                             height: 52,
                             borderRadius: 14,
-                            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             flexShrink: 0,
-                            boxShadow: '0 4px 15px rgba(59,130,246,0.3)',
+                            boxShadow: '0 4px 15px rgba(34,197,94,0.3)',
                         }}>
                             <Smartphone size={26} color="white" />
                         </div>
@@ -159,7 +154,7 @@ const InstallPWABanner = () => {
                                 margin: 0,
                                 fontSize: '1rem',
                                 fontWeight: 700,
-                                color: 'white',
+                                color: '#14532d',
                                 lineHeight: 1.3,
                             }}>
                                 Instalar RelojReducto
@@ -167,10 +162,10 @@ const InstallPWABanner = () => {
                             <p style={{
                                 margin: '4px 0 0',
                                 fontSize: '0.78rem',
-                                color: '#94a3b8',
+                                color: '#4b5563',
                                 lineHeight: 1.4,
                             }}>
-                                Acceso rápido y tracking de seguridad en segundo plano
+                                Acceso rápido desde tu pantalla de inicio
                             </p>
                         </div>
                     </div>
@@ -184,16 +179,16 @@ const InstallPWABanner = () => {
                     }}>
                         {[
                             { icon: <Zap size={12} />, text: 'Acceso rápido' },
-                            { icon: <MapPin size={12} />, text: 'GPS en background' },
-                            { icon: <Shield size={12} />, text: 'Tu seguridad' },
+                            { icon: <Shield size={12} />, text: 'Mejor experiencia' },
+                            { icon: <Smartphone size={12} />, text: 'Como app nativa' },
                         ].map((feat, i) => (
                             <span key={i} style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: 4,
                                 fontSize: '0.7rem',
-                                color: '#60a5fa',
-                                background: 'rgba(59,130,246,0.1)',
+                                color: '#15803d',
+                                background: 'rgba(34,197,94,0.12)',
                                 padding: '3px 8px',
                                 borderRadius: 20,
                                 fontWeight: 600,
@@ -211,7 +206,7 @@ const InstallPWABanner = () => {
                             padding: '0.75rem',
                             borderRadius: 12,
                             border: 'none',
-                            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
                             color: 'white',
                             fontSize: '0.9rem',
                             fontWeight: 700,
@@ -220,7 +215,7 @@ const InstallPWABanner = () => {
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: 8,
-                            boxShadow: '0 4px 15px rgba(59,130,246,0.3)',
+                            boxShadow: '0 4px 15px rgba(34,197,94,0.3)',
                             transition: 'transform 0.2s, box-shadow 0.2s',
                         }}
                         onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.98)'}

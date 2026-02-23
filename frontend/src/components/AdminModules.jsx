@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Users, Edit, X, Plus, Download, Loader2 } from 'lucide-react';
-import { adminService, pagosService, importService } from '../services/api';
+import { DollarSign, Users, Edit, X, Plus, Download, Loader2, Upload, FileSpreadsheet } from 'lucide-react';
+import { adminService, pagosService, sucursalService, importService } from '../services/api';
+import * as XLSX from 'xlsx';
+import { useModal } from '../context/ModernModalContext';
+import ModernModal from './ModernModal';
 
 // ===========================================
 // MÓDULO DE PAGOS Y DESCUENTOS
 // ===========================================
 
 export function AdminPagos() {
+    const { alert } = useModal();
     const [mesSeleccionado, setMesSeleccionado] = useState(() => {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -15,7 +19,6 @@ export function AdminPagos() {
     const [loading, setLoading] = useState(false);
     const [editandoSalario, setEditandoSalario] = useState(null);
     const [nuevoSalario, setNuevoSalario] = useState('');
-    const [guardando, setGuardando] = useState(false);
     const [busqueda, setBusqueda] = useState('');
 
     const cargarDatos = async () => {
@@ -32,15 +35,19 @@ export function AdminPagos() {
     useEffect(() => { cargarDatos(); }, [mesSeleccionado]);
 
     const guardarSalario = async (empId) => {
-        if (!nuevoSalario || isNaN(nuevoSalario)) return alert('Ingresa un salario válido');
+        if (!nuevoSalario || isNaN(nuevoSalario)) {
+            alert('Dato Inválido', 'Por favor, ingresa un monto de salario válido.', 'error');
+            return;
+        }
         setGuardando(true);
         try {
             await pagosService.actualizarSalario(empId, parseFloat(nuevoSalario));
             setEditandoSalario(null);
             setNuevoSalario('');
             cargarDatos();
+            alert('Salario Actualizado', 'El salario se ha modificado correctamente.', 'success');
         } catch (e) {
-            alert('Error: ' + (e.response?.data?.error || e.message));
+            alert('Error', e.response?.data?.error || e.message, 'error');
         }
         setGuardando(false);
     };
@@ -234,6 +241,7 @@ export function AdminPagos() {
 // ===========================================
 
 export function AdminGestionUsuarios() {
+    const { alert } = useModal();
     const [usuarios, setUsuarios] = useState([]);
     const [loading, setLoading] = useState(true);
     const [busqueda, setBusqueda] = useState('');
@@ -244,82 +252,203 @@ export function AdminGestionUsuarios() {
     const [showCrear, setShowCrear] = useState(false);
     const [nuevoUsuario, setNuevoUsuario] = useState({ ci: '', nombreCompleto: '', email: '', telefono: '', salarioMensual: '', rol: 'EMPLEADO' });
     const [creando, setCreando] = useState(false);
+    const [sucursales, setSucursales] = useState([]);
+    const [sheetsMap, setSheetsMap] = useState({}); // Mapa de nombre de hoja -> ID de sucursal
+    const [loadingSucursales, setLoadingSucursales] = useState(false);
+    const [dragActive, setDragActive] = useState(false);
 
-    useEffect(() => { cargarUsuarios(); }, []);
+    useEffect(() => {
+        cargarUsuarios();
+        cargarSucursales();
+    }, []);
+
+    const cargarSucursales = async () => {
+        setLoadingSucursales(true);
+        try {
+            const data = await sucursalService.getSucursales();
+            setSucursales(data);
+        } catch (e) {
+            console.error('Error cargando sucursales:', e);
+        }
+        setLoadingSucursales(false);
+    };
 
     const cargarUsuarios = async () => {
         try {
-            const data = await adminService.getAllUsuarios();
+            const data = await adminService.getUsuarios();
             setUsuarios(data);
         } catch (e) { console.error(e); }
         setLoading(false);
     };
 
-    // Parsear CSV/Excel text
-    const handleFileUpload = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    const formatearFechaExcel = (val) => {
+        if (val === undefined || val === null) return null;
+        if (typeof val === 'number') {
+            const date = new Date((val - 25569) * 86400 * 1000);
+            return date.toISOString().split('T')[0];
+        }
+        let str = String(val).trim();
+        // Ej: "25/2/1976" -> "1976-02-25"
+        if (str.includes('/')) {
+            const parts = str.split('/');
+            if (parts.length === 3) {
+                let y = parts[2];
+                if (y.length === 2) y = (parseInt(y) > 50 ? '19' : '20') + y;
+                return `${y}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            }
+        }
+        // Ej: "lunes, 5 de noviembre de 2012"
+        const meses = {
+            'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04', 'mayo': '05', 'junio': '06',
+            'julio': '07', 'agosto': '08', 'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+        };
+        for (const mes in meses) {
+            if (str.toLowerCase().includes(mes)) {
+                const match = str.match(/(\d+).*?de\s+([a-zA-Z]+)\s+de\s+(\d+)/i);
+                if (match) {
+                    return `${match[3]}-${meses[match[2].toLowerCase()] || '01'}-${match[1].padStart(2, '0')}`;
+                }
+            }
+        }
+        return str;
+    };
 
+    const processFile = (file) => {
+        if (!file) return;
         const reader = new FileReader();
         reader.onload = (evt) => {
             try {
-                const text = evt.target.result;
-                const lines = text.split('\n').filter(l => l.trim());
-                if (lines.length < 2) {
-                    alert('El archivo debe tener un encabezado y al menos una fila');
-                    return;
-                }
+                const dataArray = new Uint8Array(evt.target.result);
+                const wb = XLSX.read(dataArray, { type: 'array' });
 
-                const sep = lines[0].includes(';') ? ';' : ',';
-                const headers = lines[0].split(sep).map(h => h.trim().replace(/"/g, '').toLowerCase());
+                let allData = [];
+                const detectedSheetsMap = {};
 
-                const parsed = [];
-                for (let i = 1; i < lines.length; i++) {
-                    const vals = lines[i].split(sep).map(v => v.trim().replace(/"/g, ''));
-                    if (vals.length < 2) continue;
+                wb.SheetNames.forEach(sheetName => {
+                    const ws = wb.Sheets[sheetName];
+                    const sheetData = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
-                    const row = {};
-                    headers.forEach((h, idx) => {
-                        const val = vals[idx] || '';
-                        if (['ci', 'cedula', 'cédula', 'documento', 'username'].includes(h)) row.ci = val;
-                        else if (['nombre', 'nombre_completo', 'nombrecompleto', 'nombre completo', 'funcionario'].includes(h)) row.nombreCompleto = val;
-                        else if (['email', 'correo', 'e-mail'].includes(h)) row.email = val;
-                        else if (['telefono', 'teléfono', 'celular', 'tel'].includes(h)) row.telefono = val;
-                        else if (['salario', 'salario_mensual', 'salariomensual', 'sueldo'].includes(h)) row.salarioMensual = val;
-                        else if (['rol', 'cargo', 'tipo'].includes(h)) row.rol = val;
-                        else if (['sucursal', 'sucursal_id'].includes(h)) row.sucursalId = val;
+                    // Buscar la fila de encabezados
+                    let headerIndex = -1;
+                    for (let i = 0; i < Math.min(sheetData.length, 15); i++) {
+                        const row = sheetData[i] || [];
+                        if (row.some(cell => {
+                            const c = String(cell || '').toLowerCase().trim();
+                            return c.includes('nº de soci') || c === 'ci' || c === 'c.i.';
+                        })) {
+                            headerIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (headerIndex === -1) return; // Hoja no válida o sin datos
+
+                    const headers = sheetData[headerIndex].map(h => String(h || '').trim().toLowerCase());
+                    const rows = sheetData.slice(headerIndex + 1);
+
+                    // Intentar mapear la hoja a una sucursal existente (Normalización solicitada)
+                    const normalizedSheet = sheetName.toUpperCase().trim();
+                    const matchedSucursal = sucursales.find(s => {
+                        const sName = s.nombre.toUpperCase();
+                        return sName === normalizedSheet || // Exacto
+                            (normalizedSheet === 'CASA MATRIZ' && sName === 'CASA CENTRAL') ||
+                            (normalizedSheet === 'SANLORENZO_CENTRO' && sName === 'SUC. SAN LORENZO') ||
+                            (normalizedSheet === 'SUCURSAL 5' && sName === 'SUC.5 REDUCTO') ||
+                            (normalizedSheet === 'C.D.E' && sName === 'SUC. CDE') ||
+                            (normalizedSheet === 'HERNANDARIAS' && sName === 'SUC HERNANDARIAS') ||
+                            (normalizedSheet === 'VILLARRICA' && sName === 'SUCURSAL VILLARRICA') ||
+                            (normalizedSheet === 'CENTRO MEDICO REDUCTO' && sName === 'CENTRO MEDICO REDUCTO');
                     });
 
-                    if (row.ci || row.nombreCompleto) {
-                        parsed.push(row);
+                    if (matchedSucursal) {
+                        detectedSheetsMap[sheetName] = matchedSucursal.id;
                     }
-                }
 
-                setImportData(parsed);
+                    rows.forEach((rowValues) => {
+                        const row = { sheetSource: sheetName };
+                        headers.forEach((h, idx) => {
+                            const val = rowValues[idx];
+                            if (val === undefined || val === null || val === '') return;
+
+                            const header = h.trim();
+                            if (header === 'ci' || header === 'c.i.') row.ci = String(val).replace(/[^0-9]/g, '').trim();
+                            else if (header.includes('nombre') && header.includes('apellido')) row.nombreCompleto = String(val).trim();
+                            else if (header.includes('socio')) row.numeroSocio = String(val).trim();
+                            else if (header === 'cargo') row.cargo = String(val).trim();
+                            else if (header === 'nomina' || header === 'sueldo' || header === 'nómina') row.nomina = parseFloat(String(val).replace(/[^0-9]/g, '')) || 0;
+                            else if (header === 'plus') row.plus = parseFloat(String(val).replace(/[^0-9]/g, '')) || 0;
+                            else if (header === 'email' || header.includes('correo')) row.email = String(val).trim();
+                            else if (header.includes('tel')) row.telefono = String(val).trim();
+                            else if (header === 'cumpleaños' || header.includes('nacimiento') || header === 'fecha de nacimiento') row.fechaNacimiento = formatearFechaExcel(val);
+                            else if (header.includes('fecha de ingreso') || header.includes('ingreso')) row.fechaIngreso = formatearFechaExcel(val);
+                        });
+
+                        if (row.nomina !== undefined || row.plus !== undefined) {
+                            row.salarioMensual = (row.nomina || 0) + (row.plus || 0);
+                        }
+
+                        if (row.ci && row.nombreCompleto) {
+                            allData.push(row);
+                        }
+                    });
+                });
+
+                setImportData(allData);
+                setSheetsMap(detectedSheetsMap);
                 setImportResult(null);
             } catch (err) {
-                alert('Error leyendo archivo: ' + err.message);
+                console.error(err);
+                alert('Error de Lectura', 'Hubo un problema al procesar el archivo Excel: ' + err.message, 'error');
             }
         };
-        reader.readAsText(file, 'UTF-8');
+        reader.readAsArrayBuffer(file);
+    };
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        processFile(file);
+    };
+
+    const handleDrag = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.type === "dragenter" || e.type === "dragover") {
+            setDragActive(true);
+        } else if (e.type === "dragleave") {
+            setDragActive(false);
+        }
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            processFile(e.dataTransfer.files[0]);
+        }
     };
 
     const ejecutarImportacion = async () => {
         if (importData.length === 0) return;
         setImportando(true);
         try {
-            const result = await importService.importarUsuarios(importData);
+            // Asignar sucursales según el mapa antes de enviar
+            const finalData = importData.map(row => ({
+                ...row,
+                sucursalId: sheetsMap[row.sheetSource] || null
+            }));
+            const result = await importService.importarUsuarios(finalData);
             setImportResult(result);
             cargarUsuarios();
         } catch (e) {
-            alert('Error: ' + (e.response?.data?.error || e.message));
+            alert('Error en Importación', e.response?.data?.error || e.message, 'error');
         }
         setImportando(false);
     };
 
     const crearUsuario = async () => {
         if (!nuevoUsuario.ci || !nuevoUsuario.nombreCompleto) {
-            alert('CI y Nombre completo son requeridos');
+            alert('Campos Requeridos', 'El CI y el Nombre Completo son obligatorios para registrar a un funcionario.', 'warning');
             return;
         }
         setCreando(true);
@@ -338,9 +467,9 @@ export function AdminGestionUsuarios() {
             setShowCrear(false);
             setNuevoUsuario({ ci: '', nombreCompleto: '', email: '', telefono: '', salarioMensual: '', rol: 'EMPLEADO' });
             cargarUsuarios();
-            alert('Usuario creado exitosamente. Contraseña: su número de CI');
+            alert('Funcionario Creado', 'El usuario se ha registrado correctamente. La contraseña inicial es su número de CI.', 'success');
         } catch (e) {
-            alert('Error: ' + (e.response?.data?.error || e.message));
+            alert('Error al Crear', e.response?.data?.error || e.message, 'error');
         }
         setCreando(false);
     };
@@ -463,33 +592,114 @@ export function AdminGestionUsuarios() {
                     {/* Plantilla descargable */}
                     <div style={{ marginBottom: '0.75rem' }}>
                         <button onClick={() => {
-                            const blob = new Blob(['CI;Nombre Completo;Email;Telefono;Salario\n4567890;Juan Pérez;juan@email.com;0981123456;3500000\n'], { type: 'text/csv' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a'); a.href = url; a.download = 'plantilla_funcionarios.csv'; a.click();
+                            const ws_data = [
+                                ["COOPERATIVA REDUCTO LTDA"],
+                                ["PLANILLA DE FUNCIONARIOS POR SUCURSAL - CASA MATRIZ"],
+                                [""], [""], [""], [""],
+                                ["Nº DE SOCIO", "CI", "CUMPLEAÑOS", "DIAS PARA CUMPLEAÑOS", "FECHA DE INGRESO", "CARGO", "NOMINA", "PLUS", "NOMBRE Y APELLIDO * CENTRAL"],
+                                [24256, 2210018, "25/2/1976", 4, "05/11/2012", "Oficial", 6000000, 1000000, "Lilian Marlene Ocampos"]
+                            ];
+                            const wb = XLSX.utils.book_new();
+                            const ws = XLSX.utils.aoa_to_sheet(ws_data);
+                            XLSX.utils.book_append_sheet(wb, ws, "CASA MATRIZ");
+                            XLSX.writeFile(wb, "plantilla_cooperativa.xlsx");
                         }}
                             style={{ padding: '0.4rem 0.75rem', borderRadius: 8, border: '1px solid #d97706', background: 'white', color: '#92400e', fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600 }}>
-                            📥 Descargar plantilla CSV
+                            📥 Descargar plantilla Excel (Formato Planilla)
                         </button>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div
+                        onDragEnter={handleDrag}
+                        onDragLeave={handleDrag}
+                        onDragOver={handleDrag}
+                        onDrop={handleDrop}
+                        onClick={() => document.getElementById('excel-upload').click()}
+                        style={{
+                            border: `2px dashed ${dragActive ? '#d97706' : '#fcd34d'}`,
+                            borderRadius: 16,
+                            padding: '2.5rem 1.5rem',
+                            textAlign: 'center',
+                            background: dragActive ? 'rgba(217, 119, 6, 0.05)' : 'rgba(255, 255, 255, 0.3)',
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '12px',
+                            marginBottom: '1rem',
+                            position: 'relative'
+                        }}
+                    >
                         <input
+                            id="excel-upload"
                             type="file"
-                            accept=".csv,.txt"
+                            accept=".xlsx,.xls,.csv"
                             onChange={handleFileUpload}
-                            style={{ flex: 1, fontSize: '0.85rem' }}
+                            style={{ display: 'none' }}
                         />
+                        <div style={{
+                            width: 60,
+                            height: 60,
+                            borderRadius: '50%',
+                            background: dragActive ? '#d97706' : '#fffbeb',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: dragActive ? 'white' : '#d97706',
+                            transition: 'all 0.3s ease',
+                            boxShadow: '0 4px 12px rgba(217, 119, 6, 0.1)'
+                        }}>
+                            {importData.length > 0 ? <FileSpreadsheet size={32} /> : <Upload size={32} />}
+                        </div>
+                        <div>
+                            <p style={{ margin: 0, fontWeight: 700, color: '#92400e', fontSize: '1rem' }}>
+                                {importData.length > 0 ? `${importData.length} funcionarios detectados` : 'Arrastra tu archivo aquí'}
+                            </p>
+                            <p style={{ margin: '4px 0 0', color: '#b45309', fontSize: '0.82rem' }}>
+                                o haz clic para buscar en tu equipo
+                            </p>
+                        </div>
+
                         {importData.length > 0 && (
-                            <button onClick={ejecutarImportacion} disabled={importando}
+                            <button onClick={(e) => { e.stopPropagation(); ejecutarImportacion(); }} disabled={importando}
                                 style={{
-                                    padding: '0.5rem 1.25rem', borderRadius: 10, border: 'none',
-                                    background: '#10b981', color: 'white', fontWeight: 700, cursor: 'pointer',
-                                    opacity: importando ? 0.7 : 1
+                                    marginTop: '8px',
+                                    padding: '0.6rem 1.5rem', borderRadius: 10, border: 'none',
+                                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                                    color: 'white', fontWeight: 700, cursor: 'pointer',
+                                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)',
+                                    opacity: importando ? 0.7 : 1,
+                                    zIndex: 10
                                 }}>
-                                {importando ? 'Importando...' : `Importar ${importData.length} registros`}
+                                {importando ? 'Importando...' : `🚀 Procesar e Importar`}
                             </button>
                         )}
                     </div>
+
+                    {/* Mapeo de Hojas a Sucursales */}
+                    {importData.length > 0 && Object.keys(sheetsMap).length > 0 && !importResult && (
+                        <div style={{ marginTop: '1rem', padding: '1rem', background: 'white', borderRadius: 12, border: '1px solid #ffedb3' }}>
+                            <h4 style={{ margin: '0 0 10px', fontSize: '0.85rem', color: '#92400e' }}>📍 Mapeo de Hojas a Sucursales Detectadas:</h4>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
+                                {Array.from(new Set(importData.map(d => d.sheetSource))).map(sheetName => (
+                                    <div key={sheetName} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Hoja: {sheetName}</span>
+                                        <select
+                                            value={sheetsMap[sheetName] || ''}
+                                            onChange={(e) => setSheetsMap({ ...sheetsMap, [sheetName]: e.target.value })}
+                                            style={{ ...inputStyle, padding: '4px 8px', fontSize: '0.8rem' }}
+                                        >
+                                            <option value="">Seleccionar Sucursal...</option>
+                                            {sucursales.map(s => (
+                                                <option key={s.id} value={s.id}>{s.nombre}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Preview */}
                     {importData.length > 0 && !importResult && (
@@ -497,26 +707,28 @@ export function AdminGestionUsuarios() {
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                 <thead>
                                     <tr style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
-                                        <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>#</th>
+                                        <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Hoja</th>
                                         <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>CI</th>
                                         <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Nombre</th>
-                                        <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Email</th>
                                         <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Salario</th>
+                                        <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Plus</th>
+                                        <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Total</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {importData.slice(0, 30).map((row, i) => (
+                                    {importData.slice(0, 50).map((row, i) => (
                                         <tr key={i}>
-                                            <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6', color: '#9ca3af' }}>{i + 1}</td>
+                                            <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6', color: '#6d7278', fontSize: '0.7rem' }}>{row.sheetSource}</td>
                                             <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6', fontFamily: 'monospace' }}>{row.ci || '-'}</td>
                                             <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6' }}>{row.nombreCompleto || '-'}</td>
-                                            <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6' }}>{row.email || '-'}</td>
-                                            <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6' }}>{row.salarioMensual || '-'}</td>
+                                            <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6' }}>{row.nomina ? row.nomina.toLocaleString('es-PY') : '-'}</td>
+                                            <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6' }}>{row.plus ? row.plus.toLocaleString('es-PY') : '-'}</td>
+                                            <td style={{ padding: '4px 10px', borderBottom: '1px solid #f3f4f6', fontWeight: 600 }}>{row.salarioMensual ? row.salarioMensual.toLocaleString('es-PY') : '-'}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
-                            {importData.length > 30 && <p style={{ padding: '0.5rem', fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>... y {importData.length - 30} más</p>}
+                            {importData.length > 50 && <p style={{ padding: '0.5rem', fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>... y {importData.length - 50} más</p>}
                         </div>
                     )}
 

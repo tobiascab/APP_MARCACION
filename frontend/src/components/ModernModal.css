@@ -1,0 +1,135 @@
+@keyframes modalScaleIn {
+    from {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes overlayFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.modern-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: overlayFadeIn 0.3s ease-out forwards;
+}
+
+.modern-modal-container {
+    background: white;
+    width: 90%;
+    max-width: 440px;
+    border-radius: 24px;
+    padding: 2rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    animation: modalScaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.modern-modal-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+}
+
+.modern-modal-icon.warning {
+    background: #fff7ed;
+    color: #f97316;
+}
+
+.modern-modal-icon.error {
+    background: #fef2f2;
+    color: #ef4444;
+}
+
+.modern-modal-icon.success {
+    background: #f0fdf4;
+    color: #22c55e;
+}
+
+.modern-modal-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #1e293b;
+    margin: 0 0 0.75rem;
+}
+
+.modern-modal-body {
+    font-size: 1rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin-bottom: 2rem;
+}
+
+.modern-modal-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.modern-modal-btn {
+    flex: 1;
+    padding: 0.85rem;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+
+.modern-modal-btn.cancel {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.modern-modal-btn.cancel:hover {
+    background: #e2e8f0;
+}
+
+.modern-modal-btn.confirm {
+    background: #1e293b;
+    color: white;
+}
+
+.modern-modal-btn.confirm:hover {
+    background: #0f172a;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+}
+
+.modern-modal-btn.confirm.danger {
+    background: #ef4444;
+}
+
+.modern-modal-btn.confirm.danger:hover {
+    background: #dc2626;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}

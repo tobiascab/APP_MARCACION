@@ -3,6 +3,7 @@ package com.relojreducto.dto;
 import com.relojreducto.entity.Usuario;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 public class UsuarioDTO {
     private Long id;
@@ -40,6 +41,8 @@ public class UsuarioDTO {
     private SucursalDTO sucursal;
     private Long turnoId;
     private TurnoDTO turno;
+    private LocalDate fechaNacimiento;
+    private LocalDate fechaIngreso;
 
     public UsuarioDTO() {
     }
@@ -47,7 +50,8 @@ public class UsuarioDTO {
     public UsuarioDTO(Long id, String username, String nombreCompleto, String rol, Boolean activo, String email,
             String telefono, BigDecimal salarioMensual, String emailInstitucional, String telefonoCorporativo,
             String numeroSocio, String fotoPerfil, Boolean biometricoHabilitado,
-            Boolean siempreEnUbicacion, Long sucursalId, SucursalDTO sucursal, Long turnoId, TurnoDTO turno) {
+            Boolean siempreEnUbicacion, Long sucursalId, SucursalDTO sucursal, Long turnoId, TurnoDTO turno,
+            LocalDate fechaNacimiento, LocalDate fechaIngreso) {
         this.id = id;
         this.username = username;
         this.nombreCompleto = nombreCompleto;
@@ -66,6 +70,8 @@ public class UsuarioDTO {
         this.sucursal = sucursal;
         this.turnoId = turnoId;
         this.turno = turno;
+        this.fechaNacimiento = fechaNacimiento;
+        this.fechaIngreso = fechaIngreso;
     }
 
     public Long getId() {
@@ -212,6 +218,22 @@ public class UsuarioDTO {
         this.turno = turno;
     }
 
+    public LocalDate getFechaNacimiento() {
+        return fechaNacimiento;
+    }
+
+    public void setFechaNacimiento(LocalDate fechaNacimiento) {
+        this.fechaNacimiento = fechaNacimiento;
+    }
+
+    public LocalDate getFechaIngreso() {
+        return fechaIngreso;
+    }
+
+    public void setFechaIngreso(LocalDate fechaIngreso) {
+        this.fechaIngreso = fechaIngreso;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -235,6 +257,8 @@ public class UsuarioDTO {
         private SucursalDTO sucursal;
         private Long turnoId;
         private TurnoDTO turno;
+        private LocalDate fechaNacimiento;
+        private LocalDate fechaIngreso;
 
         public Builder id(Long id) {
             this.id = id;
@@ -326,10 +350,20 @@ public class UsuarioDTO {
             return this;
         }
 
+        public Builder fechaNacimiento(LocalDate fechaNacimiento) {
+            this.fechaNacimiento = fechaNacimiento;
+            return this;
+        }
+
+        public Builder fechaIngreso(LocalDate fechaIngreso) {
+            this.fechaIngreso = fechaIngreso;
+            return this;
+        }
+
         public UsuarioDTO build() {
             return new UsuarioDTO(id, username, nombreCompleto, rol, activo, email, telefono, salarioMensual,
                     emailInstitucional, telefonoCorporativo, numeroSocio,
-                    fotoPerfil, biometricoHabilitado, siempreEnUbicacion, sucursalId, sucursal, turnoId, turno);
+                    fotoPerfil, biometricoHabilitado, siempreEnUbicacion, sucursalId, sucursal, turnoId, turno, fechaNacimiento, fechaIngreso);
         }
     }
 
@@ -353,6 +387,8 @@ public class UsuarioDTO {
                 .sucursal(SucursalDTO.fromEntity(usuario.getSucursal()))
                 .turnoId(usuario.getTurno() != null ? usuario.getTurno().getId() : null)
                 .turno(usuario.getTurno() != null ? TurnoDTO.fromEntity(usuario.getTurno()) : null)
+                .fechaNacimiento(usuario.getFechaNacimiento())
+                .fechaIngreso(usuario.getFechaIngreso())
                 .build();
     }
 }

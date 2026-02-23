@@ -3,19 +3,18 @@
  * Permite tracking de ubicación en background cuando la app está instalada como PWA.
  * 
  * Funcionalidades:
- * - Registra Periodic Background Sync para enviar ubicación cada ~15 min (cuando está disponible)
+ * - Registra Periodic Background Sync para enviar ubicación cada ~5 min (cuando disponible)
  * - Mantiene la app activa más tiempo en segundo plano
  * - Cachea recursos esenciales para funcionamiento offline
  * - MODO OFFLINE: Guarda marcaciones en IndexedDB cuando no hay conexión
  * - SYNC automático: Envía marcaciones pendientes cuando se recupera la conexión
  */
 
-const CACHE_NAME = 'relojreducto-v2';
-const TRACKING_INTERVAL = 2 * 60 * 1000; // 2 minutos
+const CACHE_NAME = 'relojreducto-v4';
+const TRACKING_INTERVAL = 30 * 1000; // 30 segundos para tiempo real
 
-// Recursos a cachear para acceso offline
+// Recursos a cachear para acceso offline (NO incluir / ni index.html para evitar servir versiones viejas)
 const STATIC_ASSETS = [
-    '/',
     '/logo.png',
     '/manifest.json'
 ];
@@ -24,7 +23,7 @@ const STATIC_ASSETS = [
 // INSTALACIÓN
 // =============================================
 self.addEventListener('install', (event) => {
-    console.log('[SW] Instalando Service Worker v2...');
+    console.log('[SW] Instalando Service Worker v5 - Tracking 30s...');
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => cache.addAll(STATIC_ASSETS))
@@ -36,7 +35,7 @@ self.addEventListener('install', (event) => {
 // ACTIVACIÓN
 // =============================================
 self.addEventListener('activate', (event) => {
-    console.log('[SW] Service Worker v2 activado');
+    console.log('[SW] Service Worker v5 activado');
     event.waitUntil(
         caches.keys().then(keys => {
             return Promise.all(
@@ -48,7 +47,7 @@ self.addEventListener('activate', (event) => {
     // Registrar periodic background sync si está disponible
     if (self.registration.periodicSync) {
         self.registration.periodicSync.register('background-tracking', {
-            minInterval: 15 * 60 * 1000 // Mínimo cada 15 minutos
+            minInterval: 5 * 60 * 1000 // Cada 5 minutos en background
         }).then(() => {
             console.log('[SW] Periodic Background Sync registrado');
         }).catch(err => {
@@ -315,6 +314,15 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
+    // Para navegación (HTML), usar network-first para siempre obtener la última versión
+    if (event.request.mode === 'navigate') {
+        event.respondWith(
+            fetch(event.request).catch(() => caches.match('/index.html') || caches.match('/'))
+        );
+        return;
+    }
+
+    // Para assets estáticos (JS, CSS, imágenes), cache-first
     event.respondWith(
         caches.match(event.request).then(cached => {
             return cached || fetch(event.request);

@@ -94,6 +94,11 @@ function AdminReportes() {
             const marcacionesUsuario = marcaciones.filter(m => m.usuarioId === usuario.id && m.esTardia);
             const totalDescuentos = marcacionesUsuario.reduce((sum, m) => sum + (m.descuentoCalculado || 0), 0);
             const totalMinutosTarde = marcacionesUsuario.reduce((sum, m) => sum + (m.minutosTarde || 0), 0);
+            const detalles = marcacionesUsuario.map(m => {
+                const dateObj = new Date(m.fechaHora);
+                const fechaStr = dateObj.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' });
+                return `${fechaStr} (${m.minutosTarde}m)`;
+            }).join(', ');
 
             return {
                 nombre: usuario.nombreCompleto,
@@ -101,7 +106,8 @@ function AdminReportes() {
                 sucursal: usuario.sucursal?.nombre || 'S/N',
                 cantidadTardanzas: marcacionesUsuario.length,
                 totalMinutos: totalMinutosTarde,
-                totalDescuentos
+                totalDescuentos,
+                detalles
             };
         }).filter(u => u.cantidadTardanzas > 0).sort((a, b) => b.totalDescuentos - a.totalDescuentos);
     };
@@ -342,6 +348,7 @@ function AdminReportes() {
                                             <th>Colaborador</th>
                                             <th>Cédula</th>
                                             <th>Sucursal</th>
+                                            <th>Días que llegó tarde (Minutos)</th>
                                             <th style={{ textAlign: 'center' }}>Tardanzas</th>
                                             <th style={{ textAlign: 'center' }}>Minutos Totales</th>
                                             <th style={{ textAlign: 'right' }}>Total Descuento</th>
@@ -353,6 +360,7 @@ function AdminReportes() {
                                                 <td style={{ fontWeight: '600' }}>{r.nombre}</td>
                                                 <td>{r.cedula}</td>
                                                 <td>{r.sucursal}</td>
+                                                <td style={{ fontSize: '0.8rem', color: '#64748b', maxWidth: '250px', lineHeight: '1.4' }}>{r.detalles}</td>
                                                 <td style={{ textAlign: 'center' }}>
                                                     <span style={{ background: '#fef2f2', color: '#dc2626', padding: '0.25rem 0.75rem', borderRadius: '999px', fontWeight: '600' }}>
                                                         {r.cantidadTardanzas}

@@ -11,7 +11,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
-@org.springframework.context.annotation.Profile({ "dev", "test" })
 public class DataInitializer implements CommandLineRunner {
 
         private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
@@ -78,10 +77,12 @@ public class DataInitializer implements CommandLineRunner {
                         usuarioRepository.save(admin);
                         log.info("✅ Usuario ADMIN creado");
                 } else {
-                        admin.setPassword(passwordEncoder.encode(adminPassword));
-                        admin.setSucursal(casaCentral);
-                        usuarioRepository.save(admin);
-                        log.info("✅ Usuario ADMIN actualizado");
+                        // Solo actualizar sucursal si no la tiene, NO resetear contraseña
+                        if (admin.getSucursal() == null && casaCentral != null) {
+                                admin.setSucursal(casaCentral);
+                                usuarioRepository.save(admin);
+                        }
+                        log.info("✅ Usuario ADMIN existente (contraseña preservada)");
                 }
 
                 // Crear usuario empleado de prueba si no existe

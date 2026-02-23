@@ -170,6 +170,28 @@ public class UsuarioService {
     }
 
     /**
+     * Cambia la contraseña de un usuario.
+     */
+    @Transactional
+    public void changePassword(Long id, String newPassword) {
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado con ID: " + id));
+        usuario.setPassword(passwordEncoder.encode(newPassword));
+        usuarioRepository.save(usuario);
+    }
+
+    /**
+     * Resetea la contraseña de un usuario a su CI (username).
+     */
+    @Transactional
+    public void resetPasswordToUsername(Long id) {
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado con ID: " + id));
+        usuario.setPassword(passwordEncoder.encode(usuario.getUsername()));
+        usuarioRepository.save(usuario);
+    }
+
+    /**
      * Resetea el perfil de un usuario (foto y datos corporativos).
      */
     @Transactional

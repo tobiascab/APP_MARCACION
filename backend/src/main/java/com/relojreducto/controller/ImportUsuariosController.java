@@ -9,8 +9,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -172,6 +173,30 @@ public class ImportUsuariosController {
         String numSocio = getString(row, "numeroSocio");
         if (numSocio != null && !numSocio.isBlank()) {
             usuario.setNumeroSocio(numSocio);
+        }
+
+        // Fechas
+        String fechaNac = getString(row, "fechaNacimiento");
+        if (fechaNac != null && !fechaNac.isBlank()) {
+            try {
+                usuario.setFechaNacimiento(LocalDate.parse(fechaNac));
+            } catch (Exception e) {
+                 // Try a different format if parse fails, or excel float
+                 if(fechaNac.contains("T")) {
+                     usuario.setFechaNacimiento(LocalDate.parse(fechaNac.substring(0, 10)));
+                 }
+            }
+        }
+
+        String fechaIng = getString(row, "fechaIngreso");
+        if (fechaIng != null && !fechaIng.isBlank()) {
+            try {
+                usuario.setFechaIngreso(LocalDate.parse(fechaIng));
+            } catch (Exception e) {
+                 if(fechaIng.contains("T")) {
+                     usuario.setFechaIngreso(LocalDate.parse(fechaIng.substring(0, 10)));
+                 }
+            }
         }
 
         // Salario

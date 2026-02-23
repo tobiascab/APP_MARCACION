@@ -1,7 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Camera, RefreshCw, Check, X, User, Loader2, SkipForward, AlertTriangle, ShieldCheck } from 'lucide-react';
-import { FaceDetection } from '@mediapipe/face_detection';
 import './CapturaFoto.css';
+
+// Intentar importar FaceDetection, pero no fallar si no está disponible
+let FaceDetection = null;
+try {
+    const mediapipe = await import('@mediapipe/face_detection');
+    FaceDetection = mediapipe.FaceDetection;
+} catch (e) {
+    console.warn('MediaPipe face detection no disponible, captura sin detección facial.');
+}
 
 function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
     const videoRef = useRef(null);
@@ -21,13 +29,18 @@ function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
 
     const [faceDetected, setFaceDetected] = useState(false);
     const [faceScore, setFaceScore] = useState(0);
+    const [canCapture, setCanCapture] = useState(false); // Fallback: permite capturar sin detección
+    const [cameraReady, setCameraReady] = useState(false);
     const detectorRef = useRef(null);
     const requestRef = useRef(null);
+    const fallbackTimerRef = useRef(null);
 
     const startCamera = async () => {
         setLoading(true);
         setError('');
         setStep('capturing');
+        setCanCapture(false);
+        setCameraReady(false);
 
         if (!window.isSecureContext) {
             setError('Se requiere una conexión segura (HTTPS) para usar la cámara.');
@@ -52,7 +65,14 @@ function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
                 videoRef.current.onloadedmetadata = () => {
+                    videoRef.current.play();
+                    setCameraReady(true);
                     initFaceDetection();
+                    // Fallback: habilitar captura después de 3 segundos sin importar detección
+                    if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+                    fallbackTimerRef.current = setTimeout(() => {
+                        setCanCapture(true);
+                    }, 3000);
                 };
             }
         } catch (err) {
@@ -65,32 +85,43 @@ function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
     };
 
     const initFaceDetection = async () => {
-        if (!FaceDetection) return;
+        if (!FaceDetection) {
+            // Sin detección facial disponible - habilitar captura inmediatamente
+            setCanCapture(true);
+            return;
+        }
 
-        const faceDetection = new FaceDetection({
-            locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`;
-            }
-        });
+        try {
+            const faceDetection = new FaceDetection({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`;
+                }
+            });
 
-        faceDetection.setOptions({
-            model: 'short',
-            minDetectionConfidence: 0.6
-        });
+            faceDetection.setOptions({
+                model: 'short',
+                minDetectionConfidence: 0.6
+            });
 
-        faceDetection.onResults((results) => {
-            if (results.detections && results.detections.length > 0) {
-                const score = results.detections[0].categories[0].score;
-                setFaceScore(score);
-                setFaceDetected(score > 0.65);
-            } else {
-                setFaceDetected(false);
-                setFaceScore(0);
-            }
-        });
+            faceDetection.onResults((results) => {
+                if (results.detections && results.detections.length > 0) {
+                    const score = results.detections[0].categories[0].score;
+                    setFaceScore(score);
+                    setFaceDetected(score > 0.65);
+                    if (score > 0.65) setCanCapture(true);
+                } else {
+                    setFaceDetected(false);
+                    setFaceScore(0);
+                }
+            });
 
-        detectorRef.current = faceDetection;
-        runDetection();
+            detectorRef.current = faceDetection;
+            runDetection();
+        } catch (err) {
+            console.error('Error inicializando face detection:', err);
+            // Si falla, habilitar captura de todos modos
+            setCanCapture(true);
+        }
     };
 
     const runDetection = async () => {
@@ -98,22 +129,22 @@ function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
             try {
                 await detectorRef.current.send({ image: videoRef.current });
             } catch (err) {
-                console.error("Detection error:", err);
+                // Silenciar errores de detección
             }
         }
         requestRef.current = requestAnimationFrame(runDetection);
     };
 
     const stopCamera = () => {
+        if (fallbackTimerRef.current) {
+            clearTimeout(fallbackTimerRef.current);
+        }
         if (requestRef.current) {
             cancelAnimationFrame(requestRef.current);
         }
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
             setStream(null);
-        }
-        if (detectorRef.current) {
-            // detectorRef.current.close();
         }
     };
 
@@ -172,6 +203,9 @@ function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
         setStep('intro');
     };
 
+    // El botón es clickeable si la detección facial lo dice O si el fallback timer ya pasó
+    const captureEnabled = faceDetected || canCapture;
+
     return (
         <div className="faceid-container">
             {/* Background pattern */}
@@ -219,7 +253,7 @@ function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
                             {step === 'preview' && <img src={capturedImage} alt="Preview" />}
 
                             {/* Animated ring */}
-                            <div className={`faceid-ring ${faceDetected ? 'verified' : ''}`}>
+                            <div className={`faceid-ring ${faceDetected ? 'verified' : (canCapture ? 'ready' : '')}`}>
                                 <div className="ring-segment"></div>
                                 <div className="ring-segment"></div>
                                 <div className="ring-segment"></div>
@@ -250,11 +284,13 @@ function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
 
                         <div className="faceid-capturing-info">
                             <h2 className="faceid-instruction">
-                                {step === 'capturing' ? (faceDetected ? '¡Listo! Captura ahora' : 'Encuadra tu rostro') : '¿Te gusta esta foto?'}
+                                {step === 'capturing'
+                                    ? (faceDetected ? '¡Listo! Captura ahora' : (canCapture ? '¡Listo! Presiona el botón' : 'Encuadra tu rostro'))
+                                    : '¿Te gusta esta foto?'}
                             </h2>
                             <p className="faceid-sub-instruction">
                                 {step === 'capturing'
-                                    ? (faceDetected ? 'Detección biométrica exitosa' : 'Asegúrate de tener buena iluminación')
+                                    ? (faceDetected ? 'Detección biométrica exitosa' : (canCapture ? 'Puedes capturar tu foto ahora' : 'Asegúrate de tener buena iluminación'))
                                     : 'Esta será tu imagen oficial de asistencia'}
                             </p>
                         </div>
@@ -262,13 +298,13 @@ function CapturaFoto({ onPhotoCapture, onCancel, onSkip, username }) {
                         <div className="faceid-actions-bar">
                             {step === 'capturing' && !loading && !error && (
                                 <>
-                                    <button className="faceid-action-btn" onClick={() => setFacingMode(f => f === 'user' ? 'env' : 'user')} title="Cambiar cámara">
+                                    <button className="faceid-action-btn" onClick={() => { stopCamera(); setFacingMode(f => f === 'user' ? 'environment' : 'user'); setTimeout(() => startCamera(), 300); }} title="Cambiar cámara">
                                         <RefreshCw size={24} />
                                     </button>
                                     <button
-                                        className={`faceid-trigger-btn ${faceDetected ? 'active' : 'disabled'}`}
-                                        onClick={faceDetected ? capturePhoto : null}
-                                        disabled={!faceDetected}
+                                        className={`faceid-trigger-btn ${captureEnabled ? 'active' : 'disabled'}`}
+                                        onClick={captureEnabled ? capturePhoto : undefined}
+                                        disabled={!captureEnabled}
                                     >
                                         <div className="trigger-inner"></div>
                                     </button>

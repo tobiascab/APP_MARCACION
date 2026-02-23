@@ -1,0 +1,103 @@
+services:
+  # ==========================================
+  # MySQL Database - RelojReducto
+  # ==========================================
+  relojreducto-db:
+    image: mysql:8.0
+    container_name: relojreducto-db
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=false"
+    environment:
+      MYSQL_ROOT_PASSWORD: RelojReducto2024
+      MYSQL_DATABASE: reloj_reducto_db
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+      TZ: America/Asuncion
+    volumes:
+      - relojreducto-db-data:/var/lib/mysql
+    networks:
+      - relojreducto-internal
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-pRelojReducto2024" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ==========================================
+  # Backend - Spring Boot (Java 17)
+  # ==========================================
+  relojreducto-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: relojreducto-backend
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=false"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://relojreducto-db:3306/reloj_reducto_db?useSSL=false&serverTimezone=America/Asuncion&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: RelojReducto2024
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      TZ: America/Asuncion
+    depends_on:
+      relojreducto-db:
+        condition: service_healthy
+    networks:
+      - relojreducto-internal
+
+  # ==========================================
+  # Frontend - React (Nginx) + Traefik
+  # ==========================================
+  relojreducto-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: relojreducto-frontend
+    restart: unless-stopped
+    depends_on:
+      - relojreducto-backend
+    networks:
+      - relojreducto-internal
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      # Router principal - HTTPS
+      - "traefik.http.routers.relojreducto.rule=Host(`asistoreducto.arizar-ia.cloud`)"
+      - "traefik.http.routers.relojreducto.entrypoints=websecure"
+      - "traefik.http.routers.relojreducto.tls=true"
+      - "traefik.http.routers.relojreducto.tls.certresolver=letsencrypt"
+      # Servicio - puerto interno 80
+      - "traefik.http.services.relojreducto.loadbalancer.server.port=80"
+
+  # ==========================================
+  # Frontend Development - Cambios al instante
+  # ==========================================
+  relojreducto-frontend-dev:
+    image: node:20-alpine
+    container_name: relojreducto-frontend-dev
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    environment:
+      - TZ=America/Asuncion
+    command: sh -c "npm install && npm run dev -- --host"
+    networks:
+      - relojreducto-internal
+    restart: "no" # Solo lo encendemos cuando queramos editar
+
+volumes:
+  relojreducto-db-data:
+    driver: local
+
+networks:
+  relojreducto-internal:
+    driver: bridge
+    name: relojreducto-internal
+  proxy:
+    external: true

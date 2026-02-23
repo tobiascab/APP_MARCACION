@@ -41,9 +41,11 @@ public class MarcacionController {
         try {
             Long usuarioId = getUsuarioIdActual();
             MarcacionDTO marcacion = marcacionService.registrarMarcacion(usuarioId, request);
+            long tardanzasMes = marcacionService.getLlegadasTardiasMes(usuarioId);
             return ResponseEntity.ok(Map.of(
                     "message", "Marcación registrada exitosamente",
-                    "marcacion", marcacion));
+                    "marcacion", marcacion,
+                    "tardanzasMes", tardanzasMes));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "Error al registrar marcación",

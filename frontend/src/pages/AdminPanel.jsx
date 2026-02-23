@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'reac
 import { adminService, marcacionService, authService, sucursalService, gestionService, preMarcacionService, trackingService, justificacionService, auditoriaService, pagosService, importService } from '../services/api';
 import 'leaflet/dist/leaflet.css'; // Fix: Import Leaflet CSS to prevent render issues
 import { AdminPagos, AdminGestionUsuarios } from '../components/AdminModules';
+import { useModal } from '../context/ModernModalContext';
 
 import html2pdf from 'html2pdf.js';
 import {
@@ -48,10 +49,15 @@ import {
     ArrowDownToLine,
     Radar,
     ScrollText,
-    AlertCircle
+    AlertCircle,
+    Gift,
+    Award,
+    Briefcase,
+    FileSpreadsheet
 } from 'lucide-react';
 
-import { MapContainer, TileLayer, Marker, useMapEvents, Circle, Popup } from 'react-leaflet';
+import * as XLSX from 'xlsx';
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap, Circle, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import NotificationCenter from '../components/NotificationCenter';
 
@@ -311,6 +317,63 @@ function AdminPanel() {
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+    // Sidebar DOM Ref to eliminate React re-render lag on drag
+    const sidebarRef = useRef(null);
+    const touchStartRef = useRef(0);
+    const lastDiffRef = useRef(0);
+
+    const handleTouchStart = (e) => {
+        if (!mobileMenuOpen) return;
+        touchStartRef.current = e.targetTouches[0].clientX;
+        lastDiffRef.current = 0;
+        if (sidebarRef.current) {
+            sidebarRef.current.style.transition = 'none'; // Disable transition when dragging
+        }
+    };
+
+    const handleTouchMove = (e) => {
+        if (!mobileMenuOpen || !touchStartRef.current) return;
+        const currentTouch = e.targetTouches[0].clientX;
+        const diff = touchStartRef.current - currentTouch;
+
+        // Slide only to the left (hiding)
+        if (diff > 0) {
+            lastDiffRef.current = diff;
+            if (sidebarRef.current) {
+                sidebarRef.current.style.transform = `translateX(${-diff}px)`;
+            }
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (!mobileMenuOpen) return;
+        if (sidebarRef.current) {
+            sidebarRef.current.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)'; // Restore smooth animation
+            sidebarRef.current.style.transform = ''; // Clear inline sliding
+        }
+        if (lastDiffRef.current > 100) {
+            setMobileMenuOpen(false); // Close sidebar via React state
+        }
+        touchStartRef.current = 0;
+        lastDiffRef.current = 0;
+    };
+
+    // Scroll lock for when Mobile Sidebar is open
+    useEffect(() => {
+        if (mobileMenuOpen) {
+            document.body.style.overflow = 'hidden';
+            document.body.style.touchAction = 'none'; // prevents system swipe backs over overlay
+        } else {
+            document.body.style.overflow = '';
+            document.body.style.touchAction = '';
+        }
+
+        return () => {
+            document.body.style.overflow = '';
+            document.body.style.touchAction = '';
+        };
+    }, [mobileMenuOpen]);
+
     // Close mobile menu on route change
     useEffect(() => {
         setMobileMenuOpen(false);
@@ -319,6 +382,24 @@ function AdminPanel() {
     useEffect(() => {
         const user = authService.getUsuarioActual();
         setUsuario(user);
+
+        // Responsive tables global hook for Mobile Card View
+        const setLabels = () => {
+            document.querySelectorAll('.data-table').forEach(table => {
+                const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent);
+                table.querySelectorAll('tbody tr').forEach(tr => {
+                    Array.from(tr.querySelectorAll('td')).forEach((td, index) => {
+                        if (headers[index]) td.setAttribute('data-label', headers[index]);
+                    });
+                });
+            });
+        };
+
+        setLabels(); // Run once immediately
+        const observer = new MutationObserver(setLabels);
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        return () => observer.disconnect();
     }, []);
 
     const handleLogout = () => {
@@ -351,6 +432,9 @@ function AdminPanel() {
                 <div
                     className="mobile-overlay"
                     onClick={() => setMobileMenuOpen(false)}
+                    onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
                 />
             )}
 
@@ -363,7 +447,13 @@ function AdminPanel() {
             </button>
 
             {/* Sidebar */}
-            <aside className={`admin-sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileMenuOpen ? 'mobile-open' : ''}`}>
+            <aside
+                ref={sidebarRef}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                className={`admin-sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileMenuOpen ? 'mobile-open' : ''}`}
+            >
                 <div className="sidebar-header">
                     <img src="/logo.png" alt="Logo" className="sidebar-logo" />
                     {!sidebarCollapsed && (
@@ -457,6 +547,26 @@ function AdminPanel() {
 
                 </Routes>
             </main>
+
+            {/* Mobile Bottom Navigation */}
+            <nav className="mobile-bottom-nav">
+                <NavLink to="/admin" end className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+                    <LayoutDashboard size={24} />
+                    <span>Inicio</span>
+                </NavLink>
+                <NavLink to="/admin/colaboradores" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+                    <Users size={24} />
+                    <span>Equipo</span>
+                </NavLink>
+                <NavLink to="/admin/asistencia" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+                    <Clock size={24} />
+                    <span>Registros</span>
+                </NavLink>
+                <button className={`bottom-nav-item ${mobileMenuOpen ? 'active' : ''}`} onClick={() => setMobileMenuOpen(true)}>
+                    <Menu size={24} />
+                    <span>Más</span>
+                </button>
+            </nav>
         </div>
     );
 }
@@ -475,12 +585,16 @@ function AdminDashboard() {
         totalDescuentos: 0,
         presentes: 0,
         ausentes: 0,
-        totalSucursales: 0
+        totalSucursales: 0,
+        usuarios: [],
+        filteredUsuarios: []
     });
     const [sucursales, setSucursales] = useState([]);
     const [loading, setLoading] = useState(true);
     const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
     const [sucursalFiltro, setSucursalFiltro] = useState('');
+    const [weeklyData, setWeeklyData] = useState([]);
+    const [areaData, setAreaData] = useState([]);
     const currentUser = authService.getUsuarioActual();
     const navigate = useNavigate();
 
@@ -489,39 +603,27 @@ function AdminDashboard() {
     }, [fechaFiltro, sucursalFiltro]);
 
 
-    // Datos Mock para Gráficos
-    const weeklyData = [
-        { name: 'Lun', asistencia: 12, tardanzas: 2 },
-        { name: 'Mar', asistencia: 19, tardanzas: 4 },
-        { name: 'Mie', asistencia: 15, tardanzas: 1 },
-        { name: 'Jue', asistencia: 22, tardanzas: 3 },
-        { name: 'Vie', asistencia: 20, tardanzas: 2 },
-        { name: 'Sab', asistencia: 10, tardanzas: 0 },
-        { name: 'Dom', asistencia: 5, tardanzas: 0 },
-    ];
-
     const pieData = [
-        { name: 'Presentes', value: stats.presentes || 15, color: '#10b981' },
-        { name: 'Tardanzas', value: stats.llegadasTardias || 5, color: '#f59e0b' },
-        { name: 'Ausentes', value: stats.ausentes || 8, color: '#ef4444' },
-    ];
-
-    const areaData = [
-        { time: '06:00', usuarios: 2 },
-        { time: '07:00', usuarios: 15 },
-        { time: '07:30', usuarios: 48 },
-        { time: '08:00', usuarios: 55 },
-        { time: '09:00', usuarios: 58 },
-        { time: '12:00', usuarios: 50 },
+        { name: 'Presentes', value: stats.presentes, color: '#10b981' },
+        { name: 'Tardanzas', value: stats.llegadasTardias, color: '#f59e0b' },
+        { name: 'Ausentes', value: stats.ausentes, color: '#ef4444' },
     ];
 
     const cargarDatos = async () => {
         setLoading(true);
         try {
-            const [usersData, marcData, sucursalData] = await Promise.all([
+            // Rango para semanal (últimos 7 días)
+            const hoyObj = new Date();
+            const haceUnaSemana = new Date();
+            haceUnaSemana.setDate(hoyObj.getDate() - 6);
+            const fechaInicioSemana = haceUnaSemana.toISOString().split('T')[0];
+            const fechaFinSemana = hoyObj.toISOString().split('T')[0];
+
+            const [usersData, marcData, sucursalData, historicalMarc] = await Promise.all([
                 adminService.getUsuarios(),
                 adminService.getMarcacionesByRango(fechaFiltro, fechaFiltro),
-                sucursalService.getSucursales()
+                sucursalService.getSucursales(),
+                adminService.getMarcacionesByRango(fechaInicioSemana, fechaFinSemana)
             ]);
             setSucursales(sucursalData);
 
@@ -537,8 +639,41 @@ function AdminDashboard() {
                 marcacionesHoy = marcacionesHoy.filter(m => m.usuario?.sucursal?.id === currentUser.sucursal?.id);
             }
 
-            // Calcular Stats
-            // Restore previous logic for filtering tardiness and discounts which matched the backend response
+            // 1. Tendencia Horaria (AreaData)
+            const horasEje = ['07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '14:00', '16:00', '18:00'];
+            const newAreaData = horasEje.map(h => {
+                const [hStr] = h.split(':');
+                const targetHour = parseInt(hStr);
+                const count = new Set(marcacionesHoy
+                    .filter(m => m.tipo === 'ENTRADA')
+                    .filter(m => new Date(m.fechaHora).getHours() <= targetHour)
+                    .map(m => m.usuarioId)
+                ).size;
+                return { time: h, usuarios: count };
+            });
+            setAreaData(newAreaData);
+
+            // 2. Reporte Semanal (WeeklyData)
+            const diasSemanaMap = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
+            const last7Days = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                last7Days.push({
+                    dateStr: d.toISOString().split('T')[0],
+                    name: diasSemanaMap[d.getDay()]
+                });
+            }
+
+            const newWeeklyData = last7Days.map(day => {
+                const dayMarc = historicalMarc.filter(m => m.fechaHora.startsWith(day.dateStr));
+                const uniquePresentes = new Set(dayMarc.map(m => m.usuarioId)).size;
+                const uniqueTardanzas = dayMarc.filter(m => m.esTardia).length;
+                return { name: day.name, asistencia: uniquePresentes, tardanzas: uniqueTardanzas };
+            });
+            setWeeklyData(newWeeklyData);
+
+            // Calcular Stats Hoy
             const llegadasTardias = marcacionesHoy.filter(m => m.esTardia);
             const totalDescuentos = llegadasTardias.reduce((acc, curr) => acc + (curr.descuentoCalculado || 0), 0);
             const usuariosConMarcacion = new Set(marcacionesHoy.map(m => m.usuarioId || m.usuario?.id));
@@ -551,7 +686,9 @@ function AdminDashboard() {
                 totalDescuentos,
                 presentes: usuariosConMarcacion.size,
                 ausentes: Math.max(0, empleadosActivos.length - usuariosConMarcacion.size),
-                totalSucursales: sucursalData.length
+                totalSucursales: sucursalData.length,
+                usuarios: usersData, // Guardamos todos para referencia
+                filteredUsuarios: empleadosActivos // Guardamos los filtrados para los tops
             });
         } catch (error) {
             console.error('Error al cargar datos:', error);
@@ -574,14 +711,36 @@ function AdminDashboard() {
             {/* Header */}
             <header className="content-header">
                 <div className="header-title">
-                    <h1>Dashboard</h1>
-                    <p>Resumen general del sistema y estadísticas de rendimiento</p>
+                    <h1 style={{ fontSize: '1.8rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#1e293b' }}>
+                        {(() => {
+                            const name = currentUser?.nombreCompleto || '';
+                            const firstName = name.split(' ')[0] || '';
+                            let greeting = 'Bienvenido';
+                            let prefix = 'Sr. Gerente';
+
+                            // Heurística simple para género si termina en 'a'
+                            if (firstName.toLowerCase().endsWith('a') || firstName.toLowerCase().endsWith('ia') || firstName.toLowerCase().endsWith('ra')) {
+                                greeting = 'Bienvenida';
+                                prefix = 'Sra. Encargada';
+                            }
+
+                            if (currentUser?.rol === 'ADMIN_SUCURSAL') {
+                                prefix = prefix.includes('Gerente') ? 'Sr. Encargado' : 'Sra. Encargada';
+                            } else if (currentUser?.rol === 'ADMIN') {
+                                prefix = prefix.includes('Gerente') ? 'Sr. Gerente General' : 'Sra. Gerente General';
+                            }
+
+                            return `${greeting}, ${prefix} ${firstName}`;
+                        })()}
+                    </h1>
+                    <p style={{ color: '#64748b', fontWeight: 500 }}>Resumen ejecutivo del centro de control operacional</p>
                 </div>
                 <div className="header-actions">
                     <div className="filters-bar">
                         {currentUser?.rol === 'ADMIN' && (
                             <select
                                 className="input"
+                                style={{ borderRadius: 12, border: '1px solid #e2e8f0', padding: '0.6rem 2.5rem 0.6rem 1rem' }}
                                 value={sucursalFiltro}
                                 onChange={(e) => setSucursalFiltro(e.target.value)}
                             >
@@ -593,15 +752,15 @@ function AdminDashboard() {
                         )}
                         <input
                             type="date"
+                            className="input"
+                            style={{ borderRadius: 12, border: '1px solid #e2e8f0', padding: '0.6rem 1rem' }}
                             value={fechaFiltro}
                             onChange={(e) => setFechaFiltro(e.target.value)}
-                            className="input date-input"
                         />
+                        <button onClick={cargarDatos} className="btn-actualizar" style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: 12, padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600 }}>
+                            <RefreshCw size={18} /> Actualizar
+                        </button>
                     </div>
-                    <button className="btn-secondary" onClick={cargarDatos}>
-                        <RefreshCw size={18} />
-                        Actualizar
-                    </button>
                 </div>
             </header>
 
@@ -610,7 +769,7 @@ function AdminDashboard() {
             <div className="dashboard-grid-premium">
                 {/* Top Stats Row */}
                 <div className="premium-row stats-row">
-                    <div className="p-stat-card blue">
+                    <div className="p-stat-card blue" onClick={() => navigate('/admin/colaboradores')} style={{ cursor: 'pointer' }}>
                         <div className="p-stat-header">
                             <div className="p-icon-box"><Users size={20} /></div>
                             <span className="p-badge">+12%</span>
@@ -626,7 +785,7 @@ function AdminDashboard() {
                         </div>
                     </div>
 
-                    <div className="p-stat-card purple">
+                    <div className="p-stat-card purple" onClick={() => navigate('/admin/asistencia')} style={{ cursor: 'pointer' }}>
                         <div className="p-stat-header">
                             <div className="p-icon-box"><UserCheck size={20} /></div>
                             <span className="p-badge success">En horario</span>
@@ -642,7 +801,7 @@ function AdminDashboard() {
                         </div>
                     </div>
 
-                    <div className="p-stat-card pink">
+                    <div className="p-stat-card pink" onClick={() => navigate('/admin/descuentos')} style={{ cursor: 'pointer' }}>
                         <div className="p-stat-header">
                             <div className="p-icon-box"><DollarSign size={20} /></div>
                             <span className="p-badge warning">Deducciones</span>
@@ -658,7 +817,7 @@ function AdminDashboard() {
                         </div>
                     </div>
 
-                    <div className="p-stat-card green">
+                    <div className="p-stat-card green" onClick={() => navigate('/admin/configuracion/localidades')} style={{ cursor: 'pointer' }}>
                         <div className="p-stat-header">
                             <div className="p-icon-box"><Building2 size={20} /></div>
                             <span className="p-badge">Sedes</span>
@@ -738,6 +897,98 @@ function AdminDashboard() {
                                     <span className="val">{Math.round((d.value / (stats.colaboradoresActivos || 1)) * 100)}%</span>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* New Premium Row: Birthdays and Seniority */}
+                <div className="premium-row charts-row">
+                    <div className="p-chart-card large">
+                        <div className="card-header-flex">
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Gift size={20} color="#ec4899" /> Próximos Cumpleaños</h3>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>TOP 5</span>
+                        </div>
+                        <div className="p-list-container" style={{ padding: '0.5rem 1.25rem' }}>
+                            {(() => {
+                                const hoy = new Date();
+                                const proximos = (stats.filteredUsuarios || [])
+                                    .filter(u => u.fechaNacimiento)
+                                    .map(u => {
+                                        const cumple = new Date(u.fechaNacimiento);
+                                        const esteAno = new Date(hoy.getFullYear(), cumple.getMonth(), cumple.getDate());
+                                        if (esteAno < hoy) esteAno.setFullYear(hoy.getFullYear() + 1);
+                                        const diasRestantes = Math.ceil((esteAno - hoy) / (1000 * 60 * 60 * 24));
+                                        return { ...u, diasRestantes, fechaCumple: esteAno };
+                                    })
+                                    .sort((a, b) => a.diasRestantes - b.diasRestantes)
+                                    .slice(0, 5);
+
+                                if (proximos.length === 0) return <p style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No hay cumpleaños registrados</p>;
+
+                                return proximos.map((u, i) => (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 0', borderBottom: i < proximos.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                            <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#fdf2f8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ec4899', fontWeight: 700, fontSize: '0.8rem' }}>
+                                                {u.nombreCompleto.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b' }}>{u.nombreCompleto}</p>
+                                                <p style={{ fontSize: '0.75rem', color: '#64748b' }}>{u.sucursal?.nombre || 'Sede'}</p>
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <p style={{ fontSize: '0.85rem', fontWeight: 700, color: u.diasRestantes === 0 ? '#10b981' : '#1e293b' }}>
+                                                {u.diasRestantes === 0 ? '¡Hoy!' : `${u.diasRestantes} días`}
+                                            </p>
+                                            <p style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                                                {new Date(u.fechaNacimiento).toLocaleDateString('es-PY', { day: '2-digit', month: 'short' })}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ));
+                            })()}
+                        </div>
+                    </div>
+
+                    <div className="p-chart-card medium">
+                        <div className="card-header-flex">
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Award size={20} color="#3b82f6" /> Top Antigüedad</h3>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>MÁS VETERANOS</span>
+                        </div>
+                        <div className="p-list-container" style={{ padding: '0.5rem 1.25rem' }}>
+                            {(() => {
+                                const veteranos = (stats.filteredUsuarios || [])
+                                    .filter(u => u.fechaIngreso)
+                                    .sort((a, b) => new Date(a.fechaIngreso) - new Date(b.fechaIngreso))
+                                    .slice(0, 5);
+
+                                if (veteranos.length === 0) return <p style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No hay fechas de ingreso registradas</p>;
+
+                                return veteranos.map((u, i) => {
+                                    const ingreso = new Date(u.fechaIngreso);
+                                    const hoy = new Date();
+                                    const anos = hoy.getFullYear() - ingreso.getFullYear();
+                                    const m = hoy.getMonth() - ingreso.getMonth();
+                                    const antiguedad = m < 0 || (m === 0 && hoy.getDate() < ingreso.getDate()) ? anos - 1 : anos;
+
+                                    return (
+                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0.85rem 0', borderBottom: i < veteranos.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                            <div style={{ width: 36, height: 36, borderRadius: 10, background: i === 0 ? '#eff6ff' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', color: i === 0 ? '#3b82f6' : '#64748b', fontWeight: 800 }}>
+                                                #{i + 1}
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <p style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{u.nombreCompleto}</p>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <p style={{ fontSize: '0.7rem', color: '#64748b' }}>Desde {ingreso.getFullYear()}</p>
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#3b82f6', background: '#eff6ff', padding: '1px 8px', borderRadius: 12 }}>
+                                                        {antiguedad} {antiguedad === 1 ? 'año' : 'años'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                });
+                            })()}
                         </div>
                     </div>
                 </div>
@@ -1052,7 +1303,7 @@ function AdminAsistencia() {
                                 ))}
                             </tbody>
                         </table>
-                        <div style={{ padding: '1rem', borderTop: '1px solid #f1f5f9', color: '#94a3b8', fontSize: '0.85rem' }}>
+                        <div style={{ padding: '0.5rem 0.75rem', borderTop: '1px solid #f1f5f9', color: '#94a3b8', fontSize: '0.85rem' }}>
                             Mostrando {resumen.length} resultados
                         </div>
                     </div>
@@ -1077,7 +1328,7 @@ function AdminAsistencia() {
                                 <input
                                     type="text"
                                     placeholder="Filtrar mapa..."
-                                    style={{ border: 'none', background: 'transparent', outline: 'none', marginLeft: '0.5rem', width: '100%', fontSize: '0.9rem' }}
+                                    style={{ border: 'none', background: 'transparent', outline: 'none', marginLeft: '0.5rem', width: '100%', fontSize: '0.8rem' }}
                                     value={filtros.busqueda}
                                     onChange={(e) => setFiltros(prev => ({ ...prev, busqueda: e.target.value }))}
                                 />
@@ -1093,7 +1344,7 @@ function AdminAsistencia() {
                                         style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', borderRadius: '12px', cursor: hasLocation ? 'pointer' : 'default', opacity: hasLocation ? 1 : 0.6 }}
                                         onClick={() => {
                                             if (hasLocation) {
-                                                // Event dispatch to map controller could be handled via context or ref, 
+                                                // Event dispatch to map controller could be handled via context or ref,
                                                 // but for now relying on MapController internal clusters is safer.
                                                 // Ideally, we lift state up or use a shared ref.
                                                 // For this scoped fix, visual feedback is key.
@@ -1110,7 +1361,7 @@ function AdminAsistencia() {
                                             )}
                                         </div>
                                         <div className="info" style={{ flex: 1, minWidth: 0 }}>
-                                            <div className="name" style={{ fontWeight: '600', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#334155' }}>
+                                            <div className="name" style={{ fontWeight: '600', fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#334155' }}>
                                                 {item.usuario.nombreCompleto}
                                             </div>
                                             <div className="sub" style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1376,10 +1627,35 @@ function AdminColaboradores() {
         }
     };
 
-    const filteredUsuarios = usuarios.filter(u =>
-        u.nombreCompleto.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        u.username.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const [filtroSucursal, setFiltroSucursal] = useState('');
+    const [filtroRol, setFiltroRol] = useState('');
+    const [filtroEstado, setFiltroEstado] = useState('TODOS');
+    const [sucursales, setSucursales] = useState([]);
+
+    useEffect(() => {
+        cargarSucursales();
+    }, []);
+
+    const cargarSucursales = async () => {
+        try {
+            const data = await sucursalService.getSucursales();
+            setSucursales(data);
+        } catch (e) { console.error(e); }
+    };
+
+    const filteredUsuarios = usuarios.filter(u => {
+        const matchesSearch = u.nombreCompleto.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (u.email || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+        const matchesSucursal = filtroSucursal === '' || u.sucursal?.id === parseInt(filtroSucursal);
+        const matchesRol = filtroRol === '' || u.rol === filtroRol;
+        const matchesEstado = filtroEstado === 'TODOS' ||
+            (filtroEstado === 'ACTIVO' && u.activo) ||
+            (filtroEstado === 'INACTIVO' && !u.activo);
+
+        return matchesSearch && matchesSucursal && matchesRol && matchesEstado;
+    });
 
     // Cálculos para el resumen
     const total = usuarios.length;
@@ -1433,148 +1709,199 @@ function AdminColaboradores() {
                 </div>
             </div>
 
-            <div className="filters-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '1rem 1.5rem', borderRadius: '16px', border: '1px solid var(--admin-border)', marginBottom: '2rem' }}>
-                <div className="search-input" style={{ flex: '1', maxWidth: '400px' }}>
-                    <Search size={18} />
+            <div className="filters-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '1rem 1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '2rem', gap: '1rem', flexWrap: 'wrap' }}>
+                <div className="search-input" style={{ flex: '1', minWidth: '250px', display: 'flex', alignItems: 'center', background: '#f8fafc', borderRadius: 12, padding: '0.5rem 1rem', border: '1px solid #e2e8f0' }}>
+                    <Search size={18} style={{ color: '#94a3b8', marginRight: 10 }} />
                     <input
                         type="text"
-                        placeholder="Buscar por nombre o cédula..."
+                        placeholder="Nombre, CI o Email..."
                         value={searchTerm}
+                        style={{ background: 'none', border: 'none', outline: 'none', width: '100%', fontSize: '0.8rem' }}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--admin-text-muted)', fontWeight: '600' }}>
-                    Mostrando {filteredUsuarios.length} de {total} colaboradores
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <select
+                        className="input"
+                        style={{ borderRadius: 12, fontSize: '0.85rem', padding: '0.5rem 2rem 0.5rem 0.75rem' }}
+                        value={filtroSucursal}
+                        onChange={(e) => setFiltroSucursal(e.target.value)}
+                    >
+                        <option value="">Sucursal: Todas</option>
+                        {sucursales.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                    <select
+                        className="input"
+                        style={{ borderRadius: 12, fontSize: '0.85rem', padding: '0.5rem 2rem 0.5rem 0.75rem' }}
+                        value={filtroRol}
+                        onChange={(e) => setFiltroRol(e.target.value)}
+                    >
+                        <option value="">Rol: Todos</option>
+                        <option value="EMPLEADO">Empleado</option>
+                        <option value="ADMIN">Gerente Gral.</option>
+                        <option value="ADMIN_SUCURSAL">Encargado Suc.</option>
+                    </select>
+                    <select
+                        className="input"
+                        style={{ borderRadius: 12, fontSize: '0.85rem', padding: '0.5rem 2rem 0.5rem 0.75rem' }}
+                        value={filtroEstado}
+                        onChange={(e) => setFiltroEstado(e.target.value)}
+                    >
+                        <option value="TODOS">Estado: Todos</option>
+                        <option value="ACTIVO">Activos</option>
+                        <option value="INACTIVO">Inactivos</option>
+                    </select>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '600' }}>
+                    {filteredUsuarios.length} de {total}
                 </div>
             </div>
 
-            {loading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem', background: 'white', borderRadius: '24px', border: '1px solid var(--admin-border)' }}>
-                    <Loader2 size={40} className="animate-spin" style={{ color: 'var(--p-emerald-500)', marginBottom: '1rem' }} />
-                    <span style={{ fontWeight: '600', color: 'var(--admin-text-secondary)' }}>Cargando nómina de colaboradores...</span>
-                </div>
-            ) : filteredUsuarios.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '4rem', background: 'white', borderRadius: '24px', border: '1px solid var(--admin-border)' }}>
-                    <Users size={60} style={{ color: '#e2e8f0', marginBottom: '1.5rem' }} />
-                    <h3 style={{ fontSize: '1.25rem', color: 'var(--p-emerald-900)', marginBottom: '0.5rem' }}>No se encontraron colaboradores</h3>
-                    <p style={{ color: 'var(--admin-text-muted)' }}>Intenta ajustar tu búsqueda o crea uno nuevo.</p>
-                </div>
-            ) : (
-                <div className="table-container animate-fadeIn">
-                    <table className="data-table">
-                        <thead>
-                            <tr>
-                                <th>Nombre</th>
-                                <th>Cédula</th>
-                                <th>Rol</th>
-                                <th>Sucursal</th>
-                                <th>Salario</th>
-                                <th className="hide-mobile">Email</th>
-                                <th>Estado</th>
-                                {currentUser?.rol === 'ADMIN' && <th>Acciones</th>}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredUsuarios.map(u => (
-                                <tr key={u.id} className={!u.activo ? 'inactive' : ''}>
-                                    <td>
-                                        <div className="user-avatar-small">
-                                            {u.fotoPerfil ? (
-                                                <img src={u.fotoPerfil} alt="Perfil" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
-                                            ) : (
-                                                u.nombreCompleto.charAt(0)
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="name-cell">
-                                        <span className="user-name">{u.nombreCompleto}</span>
-                                    </td>
-                                    <td>{u.username}</td>
-                                    <td>
-                                        <span className={`role-badge ${u.rol.toLowerCase()}`}>
-                                            {u.rol}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <div className="sucursal-cell">
-                                            <Building2 size={14} />
-                                            <span>{u.sucursal?.nombre || 'Sin asignar'}</span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        {u.salarioMensual ? `₲${u.salarioMensual.toLocaleString('de-DE')}` : '-'}
-                                    </td>
-                                    <td>{u.email || '-'}</td>
-                                    <td>
-                                        <span className={`status-badge ${u.activo ? 'presente' : 'ausente'}`}>
-                                            {u.activo ? 'Activo' : 'Inactivo'}
-                                        </span>
-                                    </td>
-                                    {currentUser?.rol === 'ADMIN' && (
-                                        <td>
-                                            <div className="actions-cell">
-                                                <button
-                                                    className="action-btn"
-                                                    title="Ver detalles"
-                                                    onClick={() => {
-                                                        setSelectedUsuario(u);
-                                                        setShowPreviewModal(true);
-                                                    }}
-                                                >
-                                                    <Eye size={16} />
-                                                </button>
-                                                <button
-                                                    className="action-btn"
-                                                    title="Editar"
-                                                    onClick={() => {
-                                                        setSelectedUsuario(u);
-                                                        setShowModal(true);
-                                                    }}
-                                                >
-                                                    <Edit size={16} />
-                                                </button>
-                                                <button
-                                                    className={`action-btn ${u.activo ? 'deactivate' : 'activate'}`}
-                                                    title={u.activo ? 'Desactivar' : 'Activar'}
-                                                    onClick={() => handleToggleStatus(u)}
-                                                >
-                                                    {u.activo ? <UserX size={16} /> : <UserCheck size={16} />}
-                                                </button>
+            {
+                loading ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem', background: 'white', borderRadius: '24px', border: '1px solid var(--admin-border)' }}>
+                        <Loader2 size={40} className="animate-spin" style={{ color: 'var(--p-emerald-500)', marginBottom: '1rem' }} />
+                        <span style={{ fontWeight: '600', color: 'var(--admin-text-secondary)' }}>Cargando nómina de colaboradores...</span>
+                    </div>
+                ) : filteredUsuarios.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '4rem', background: 'white', borderRadius: '24px', border: '1px solid var(--admin-border)' }}>
+                        <Users size={60} style={{ color: '#e2e8f0', marginBottom: '1.5rem' }} />
+                        <h3 style={{ fontSize: '1.25rem', color: 'var(--p-emerald-900)', marginBottom: '0.5rem' }}>No se encontraron colaboradores</h3>
+                        <p style={{ color: 'var(--admin-text-muted)' }}>Intenta ajustar tu búsqueda o crea uno nuevo.</p>
+                    </div>
+                ) : (
+                    <div className="table-container animate-fadeIn">
+                        <table className="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Cédula</th>
+                                    <th>Nº Socio</th>
+                                    <th>Rol</th>
+                                    <th>Sucursal</th>
+                                    <th>Salario</th>
+                                    <th className="hide-mobile">Email</th>
+                                    <th>Estado</th>
+                                    {currentUser?.rol === 'ADMIN' && <th>Acciones</th>}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredUsuarios.map(u => (
+                                    <tr key={u.id} className={!u.activo ? 'inactive' : ''}>
+                                        <td className="name-cell">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                <div className="user-avatar-small">
+                                                    {u.fotoPerfil ? (
+                                                        <>
+                                                            <img src={u.fotoPerfil} alt="Perfil" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                                                            <div className="avatar-preview">
+                                                                <img src={u.fotoPerfil} alt="Preview" />
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            {u.nombreCompleto.charAt(0)}
+                                                            <div className="avatar-preview">
+                                                                <div className="avatar-placeholder-large">{u.nombreCompleto.charAt(0)}</div>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <span className="user-name">{u.nombreCompleto}</span>
                                             </div>
                                         </td>
-                                    )}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
+                                        <td>{u.username}</td>
+                                        <td>{u.numeroSocio || '-'}</td>
+                                        <td>
+                                            <span className={`role-badge ${u.rol.toLowerCase()}`}>
+                                                {u.rol}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div className="sucursal-cell">
+                                                <Building2 size={14} />
+                                                <span>{u.sucursal?.nombre || 'Sin asignar'}</span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {u.salarioMensual ? `₲${u.salarioMensual.toLocaleString('de-DE')}` : '-'}
+                                        </td>
+                                        <td className="hide-mobile">{u.email || '-'}</td>
+                                        <td>
+                                            <span className={`status-badge ${u.activo ? 'presente' : 'ausente'}`}>
+                                                {u.activo ? 'Activo' : 'Inactivo'}
+                                            </span>
+                                        </td>
+                                        {currentUser?.rol === 'ADMIN' && (
+                                            <td>
+                                                <div className="actions-cell">
+                                                    <button
+                                                        className="action-btn"
+                                                        title="Ver detalles"
+                                                        onClick={() => {
+                                                            setSelectedUsuario(u);
+                                                            setShowPreviewModal(true);
+                                                        }}
+                                                    >
+                                                        <Eye size={16} />
+                                                    </button>
+                                                    <button
+                                                        className="action-btn"
+                                                        title="Editar"
+                                                        onClick={() => {
+                                                            setSelectedUsuario(u);
+                                                            setShowModal(true);
+                                                        }}
+                                                    >
+                                                        <Edit size={16} />
+                                                    </button>
+                                                    <button
+                                                        className={`action-btn ${u.activo ? 'deactivate' : 'activate'}`}
+                                                        title={u.activo ? 'Desactivar' : 'Activar'}
+                                                        onClick={() => handleToggleStatus(u)}
+                                                    >
+                                                        {u.activo ? <UserX size={16} /> : <UserCheck size={16} />}
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )
+            }
 
-            {showModal && (
-                <UsuarioModal
-                    usuario={selectedUsuario}
-                    onClose={() => {
-                        setShowModal(false);
-                        setSelectedUsuario(null);
-                    }}
-                    onSave={() => {
-                        cargarUsuarios();
-                        setShowModal(false);
-                        setSelectedUsuario(null);
-                    }}
-                />
-            )}
+            {
+                showModal && (
+                    <UsuarioModal
+                        usuario={selectedUsuario}
+                        onClose={() => {
+                            setShowModal(false);
+                            setSelectedUsuario(null);
+                        }}
+                        onSave={() => {
+                            cargarUsuarios();
+                            setShowModal(false);
+                            setSelectedUsuario(null);
+                        }}
+                    />
+                )
+            }
 
-            {showPreviewModal && selectedUsuario && (
-                <UsuarioPreviewModal
-                    usuario={selectedUsuario}
-                    onClose={() => {
-                        setShowPreviewModal(false);
-                        setSelectedUsuario(null);
-                    }}
-                />
-            )}
-        </div>
+            {
+                showPreviewModal && selectedUsuario && (
+                    <UsuarioPreviewModal
+                        usuario={selectedUsuario}
+                        onClose={() => {
+                            setShowPreviewModal(false);
+                            setSelectedUsuario(null);
+                        }}
+                    />
+                )
+            }
+        </div >
     );
 }
 
@@ -1663,7 +1990,7 @@ function UsuarioPreviewModal({ usuario, onClose }) {
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content side-modal animate-slideInRight" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div className="modal-content animate-slideUp" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px' }}>
                 <div className="modal-header">
                     <h2>
                         <Eye size={24} />
@@ -1685,7 +2012,7 @@ function UsuarioPreviewModal({ usuario, onClose }) {
                             {/* Información Personal */}
                             <section className="form-section" style={{ background: 'linear-gradient(135deg, var(--p-emerald-50) 0%, white 100%)', borderRadius: '16px', padding: '1.5rem', marginBottom: '1.5rem' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                                    <div style={{ width: '80px', height: '80px', borderRadius: '20px', overflow: 'hidden', background: 'var(--p-emerald-100)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 'bold', color: 'var(--p-emerald-700)', border: '3px solid white', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                                    <div style={{ width: '80px', height: '80px', borderRadius: '20px', overflow: 'hidden', background: 'var(--p-emerald-100)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', fontWeight: 'bold', color: 'var(--p-emerald-700)', border: '3px solid white', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                                         {usuario.fotoPerfil ? (
                                             <img src={usuario.fotoPerfil} alt="Perfil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                         ) : (
@@ -1696,7 +2023,7 @@ function UsuarioPreviewModal({ usuario, onClose }) {
                                         <h3 style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--p-emerald-900)', marginBottom: '0.25rem' }}>
                                             {usuario.nombreCompleto}
                                         </h3>
-                                        <p style={{ color: 'var(--admin-text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                                        <p style={{ color: 'var(--admin-text-muted)', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
                                             CI: {usuario.username}
                                         </p>
                                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1710,32 +2037,32 @@ function UsuarioPreviewModal({ usuario, onClose }) {
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginTop: '1.5rem', padding: '1rem', background: 'white', borderRadius: '12px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginTop: '1.5rem', padding: '0.5rem 0.75rem', background: 'white', borderRadius: '12px' }}>
                                     <div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', marginBottom: '0.25rem', fontWeight: '600', textTransform: 'uppercase' }}>Email</div>
-                                        <div style={{ fontSize: '0.9rem', color: 'var(--p-emerald-900)' }}>{usuario.email || '-'}</div>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--p-emerald-900)' }}>{usuario.email || '-'}</div>
                                     </div>
                                     <div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', marginBottom: '0.25rem', fontWeight: '600', textTransform: 'uppercase' }}>Teléfono</div>
-                                        <div style={{ fontSize: '0.9rem', color: 'var(--p-emerald-900)' }}>{usuario.telefono || '-'}</div>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--p-emerald-900)' }}>{usuario.telefono || '-'}</div>
                                     </div>
                                     <div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', marginBottom: '0.25rem', fontWeight: '600', textTransform: 'uppercase' }}>Sucursal</div>
-                                        <div style={{ fontSize: '0.9rem', color: 'var(--p-emerald-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--p-emerald-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                             <Building2 size={14} />
                                             {usuario.sucursal?.nombre || 'Sin asignar'}
                                         </div>
                                     </div>
                                     <div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', marginBottom: '0.25rem', fontWeight: '600', textTransform: 'uppercase' }}>Turno</div>
-                                        <div style={{ fontSize: '0.9rem', color: 'var(--p-emerald-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--p-emerald-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                             <CalendarDays size={14} />
                                             {usuario.turno?.nombre || 'Sin turno fijo'}
                                         </div>
                                     </div>
                                     <div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', marginBottom: '0.25rem', fontWeight: '600', textTransform: 'uppercase' }}>Salario</div>
-                                        <div style={{ fontSize: '0.9rem', color: 'var(--p-emerald-900)', fontWeight: '600' }}>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--p-emerald-900)', fontWeight: '600' }}>
                                             {usuario.salarioMensual ? `₲${usuario.salarioMensual.toLocaleString('de-DE')}` : '-'}
                                         </div>
                                     </div>
@@ -1873,7 +2200,9 @@ function UsuarioModal({ onClose, onSave, usuario = null }) {
         biometricoHabilitado: usuario?.biometricoHabilitado !== undefined ? usuario.biometricoHabilitado : false,
         siempreEnUbicacion: usuario?.siempreEnUbicacion !== undefined ? usuario.siempreEnUbicacion : false,
         sucursalId: usuario?.sucursalId || '',
-        turnoId: usuario?.turnoId || ''
+        turnoId: usuario?.turnoId || '',
+        fechaNacimiento: usuario?.fechaNacimiento ? usuario.fechaNacimiento.split('T')[0] : '',
+        fechaIngreso: usuario?.fechaIngreso ? usuario.fechaIngreso.split('T')[0] : ''
     });
     const [sucursales, setSucursales] = useState([]);
     const [turnos, setTurnos] = useState([]);
@@ -1909,10 +2238,13 @@ function UsuarioModal({ onClose, onSave, usuario = null }) {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
+        setFormData(prev => {
+            const next = { ...prev, [name]: value };
+            if (name === 'rol' && value === 'ADMIN') {
+                next.requiereGeolocalizacion = false;
+            }
+            return next;
+        });
     };
 
     const handleSubmit = async (e) => {
@@ -1933,7 +2265,10 @@ function UsuarioModal({ onClose, onSave, usuario = null }) {
             }
 
             if (usuario) {
-                if (!payload.password) delete payload.password;
+                if (payload.password) {
+                    await adminService.changePassword(usuario.id, { password: payload.password });
+                }
+                delete payload.password;
                 await adminService.updateUsuario(usuario.id, payload);
             } else {
                 await adminService.createUsuario(payload);
@@ -1949,7 +2284,7 @@ function UsuarioModal({ onClose, onSave, usuario = null }) {
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content side-modal animate-slideInRight" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content animate-slideUp" onClick={(e) => e.stopPropagation()}>
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                     <div className="modal-header">
                         <h2>
@@ -2064,7 +2399,7 @@ function UsuarioModal({ onClose, onSave, usuario = null }) {
                                 <div className="form-group">
                                     <label>Salario Mensual (₲)</label>
                                     <div className="form-group-icon">
-                                        <div style={{ position: 'absolute', left: '1rem', fontWeight: 'bold', color: 'var(--admin-text-muted)', fontSize: '1.1rem' }}>₲</div>
+                                        <div style={{ position: 'absolute', left: '1rem', fontWeight: 'bold', color: 'var(--admin-text-muted)', fontSize: '0.95rem' }}>₲</div>
                                         <input
                                             type="number"
                                             name="salarioMensual"
@@ -2111,6 +2446,33 @@ function UsuarioModal({ onClose, onSave, usuario = null }) {
                                             <option key={t.id} value={t.id}>{t.nombre} ({t.horaEntrada} - {t.horaSalida})</option>
                                         ))}
                                     </select>
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Fecha de Nacimiento</label>
+                                    <div className="form-group-icon">
+                                        <Gift size={18} />
+                                        <input
+                                            type="date"
+                                            name="fechaNacimiento"
+                                            value={formData.fechaNacimiento}
+                                            onChange={handleChange}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label>Fecha de Ingreso</label>
+                                    <div className="form-group-icon">
+                                        <CalendarDays size={18} />
+                                        <input
+                                            type="date"
+                                            name="fechaIngreso"
+                                            value={formData.fechaIngreso}
+                                            onChange={handleChange}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </section>
@@ -2194,8 +2556,8 @@ function UsuarioModal({ onClose, onSave, usuario = null }) {
                         </button>
                     </div>
                 </form>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }
 
@@ -2211,60 +2573,127 @@ function AdminReportes() {
         fin: new Date().toISOString().split('T')[0]
     });
     const [sucursalFiltro, setSucursalFiltro] = useState('');
+    const [usuarioFiltro, setUsuarioFiltro] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [sucursales, setSucursales] = useState([]);
+    const [usuarios, setUsuarios] = useState([]);
     const [generatingReport, setGeneratingReport] = useState(false);
     const [reportData, setReportData] = useState(null);
     const [reportGeneratedAt, setReportGeneratedAt] = useState(null);
     const currentUser = authService.getUsuarioActual();
 
     const reportTypeNames = {
-        'asistencia': 'Reporte de Asistencia General',
-        'descuentos': 'Reporte de Descuentos por Tardanza',
-        'resumen': 'Resumen Ejecutivo por Sucursal'
+        'asistencia': 'Reporte General de Asistencia y Puntualidad',
+        'descuentos': 'Reporte de Descuentos por Tardanzas',
+        'resumen': 'Resumen Ejecutivo por Sucursales',
+        'individual': 'Kardex Individual de Trabajador'
     };
 
     useEffect(() => {
-        cargarSucursales();
+        cargarFiltros();
     }, []);
 
-    const cargarSucursales = async () => {
+    const cargarFiltros = async () => {
         try {
-            const data = await sucursalService.getSucursales();
-            setSucursales(data);
+            const [dataSucursales, dataUsuarios] = await Promise.all([
+                sucursalService.getSucursales(),
+                adminService.getUsuarios()
+            ]);
+            setSucursales(dataSucursales);
+            setUsuarios(dataUsuarios.sort((a, b) => a.nombreCompleto.localeCompare(b.nombreCompleto)));
         } catch (error) {
-            console.error('Error al cargar sucursales:', error);
+            console.error('Error al cargar filtros:', error);
         }
     };
 
     const generarReporte = async () => {
+        if (reportType === 'individual' && !usuarioFiltro) {
+            alert('Por favor, selecciona un funcionario para emitir el Kardex.');
+            return;
+        }
+
         try {
             setGeneratingReport(true);
-            const [usuarios, marcaciones] = await Promise.all([
+            const [usuariosDb, marcaciones] = await Promise.all([
                 adminService.getUsuarios(),
                 adminService.getAllMarcaciones()
             ]);
 
+            // Filtrar usuarios inactivos o desactivados y excluir al admin principal
+            const usuariosActivosDb = usuariosDb.filter(u => u.activo === true && u.username !== 'admin');
+
+            // Filtrar marcaciones por rango de fechas general
             const marcacionesFiltradas = marcaciones.filter(m => {
                 const fecha = m.fechaHora.split('T')[0];
                 return fecha >= dateRange.inicio && fecha <= dateRange.fin;
-            });
+            }).sort((a, b) => new Date(b.fechaHora) - new Date(a.fechaHora));
 
-            let data = {};
+            let reportDataToSet = null;
             if (reportType === 'asistencia') {
-                data = generarReporteAsistencia(marcacionesFiltradas, usuarios, sucursalFiltro);
+                reportDataToSet = generarReporteAsistencia(marcacionesFiltradas, usuariosActivosDb, sucursalFiltro);
             } else if (reportType === 'descuentos') {
-                data = generarReporteDescuentos(marcacionesFiltradas, usuarios, sucursalFiltro);
+                reportDataToSet = generarReporteDescuentos(marcacionesFiltradas, usuariosActivosDb, sucursalFiltro);
             } else if (reportType === 'resumen') {
-                data = generarReporteResumen(marcacionesFiltradas, usuarios, sucursalFiltro);
+                reportDataToSet = generarReporteResumen(marcacionesFiltradas, usuariosActivosDb, sucursalFiltro);
+            } else if (reportType === 'individual') {
+                // Para historial individual, sí permitimos buscar entre todos (incluyendo inactivos) por si se necesita registro pasado,
+                // Pero si quieres que tampoco salgan allí, pasamos usuariosActivosDb. El usuario pide que no salgan NUNCA.
+                reportDataToSet = generarKardexIndividual(marcacionesFiltradas, usuariosActivosDb.find(u => u.id === parseInt(usuarioFiltro)));
+                if (!reportDataToSet) {
+                    alert('El colaborador seleccionado no existe o está desactivado.');
+                    setGeneratingReport(false);
+                    return;
+                }
             }
 
-            setReportData(data);
+            if (reportDataToSet) {
+                reportDataToSet.metadata = {
+                    type: reportType,
+                    count: reportType === 'individual' ? reportDataToSet.marcaciones.length : reportDataToSet.length
+                };
+            }
+
+            setReportData(reportDataToSet);
             setReportGeneratedAt(new Date());
         } catch (error) {
             console.error('Error al generar reporte:', error);
+            alert('Error generando el reporte.');
         } finally {
             setGeneratingReport(false);
         }
+    };
+
+    const generarKardexIndividual = (marcaciones, usuario) => {
+        if (!usuario) return null;
+        const marcacionesUser = marcaciones.filter(m => m.usuarioId === usuario.id);
+
+        let minutosTardeTotal = 0;
+        let descuentoTotal = 0;
+        let diasAsistidos = new Set();
+        let ausenciasInjustificadas = 0; // Se requeriría lógica compleja con días laborales
+
+        const registros = marcacionesUser.map(m => {
+            if (m.esTardia) {
+                minutosTardeTotal += m.minutosTarde || 0;
+                descuentoTotal += m.descuentoCalculado || 0;
+            }
+            if (m.tipo === 'ENTRADA') {
+                diasAsistidos.add(m.fechaHora.split('T')[0]);
+            }
+            return m;
+        });
+
+        return {
+            empleado: usuario,
+            stats: {
+                diasAsistidos: diasAsistidos.size,
+                minutosTardeTotal,
+                descuentoTotal,
+                totalMarcaciones: registros.length
+            },
+            marcaciones: registros
+        };
     };
 
     const generarReporteAsistencia = (marcaciones, usuarios, sucursalId) => {
@@ -2286,7 +2715,7 @@ function AdminReportes() {
                 tardanzas,
                 puntualidad: diasTrabajados > 0 ? Math.round(((diasTrabajados - tardanzas) / diasTrabajados) * 100) : 100
             };
-        });
+        }).sort((a, b) => b.diasTrabajados - a.diasTrabajados);
     };
 
     const generarReporteDescuentos = (marcaciones, usuarios, sucursalId) => {
@@ -2337,305 +2766,558 @@ function AdminReportes() {
     };
 
     const formatDate = (dateStr) => {
+        if (!dateStr) return '';
         const date = new Date(dateStr + 'T00:00:00');
         return date.toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' });
     };
 
+    const formatDateTime = (isoString) => {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        return date.toLocaleString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+
     const exportarPDF = () => {
-        if (!reportData || reportData.length === 0) {
-            alert('No hay datos para exportar');
-            return;
+        if (!reportData) {
+            return alert('No hay datos para exportar');
         }
 
         const reportElement = document.getElementById('report-content');
         const opt = {
             margin: [15, 10, 15, 10],
-            filename: `COOP_REDUCTO_${reportType.toUpperCase()}_${dateRange.inicio}_${dateRange.fin}.pdf`,
+            filename: `COOP_${reportType.toUpperCase()}_${new Date().getTime()}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
         html2pdf().set(opt).from(reportElement).save();
     };
 
-    const getSucursalNombre = () => {
-        if (!sucursalFiltro) return 'Todas las Sucursales';
-        const suc = sucursales.find(s => s.id === parseInt(sucursalFiltro));
-        return suc ? suc.nombre : 'Todas las Sucursales';
+    const exportarExcel = () => {
+        if (!reportData) {
+            return alert('No hay datos para exportar');
+        }
+
+        let ws;
+        const nombreArchivo = `COOP_${reportType.toUpperCase()}_${new Date().getTime()}.xlsx`;
+
+        if (reportType === 'asistencia') {
+            const dataToExport = reportData.map(r => ({
+                'Colaborador': r.nombre,
+                'Nº de Cédula': r.cedula,
+                'Sucursal': r.sucursal,
+                'Días Trabajados': r.diasTrabajados,
+                'Tardanzas': r.tardanzas,
+                'Índice Puntualidad (%)': r.puntualidad
+            }));
+            ws = XLSX.utils.json_to_sheet(dataToExport);
+        } else if (reportType === 'descuentos') {
+            const dataToExport = reportData.map(r => ({
+                'Sujeto de Descuento': r.nombre,
+                'Nº de Cédula': r.cedula,
+                'Locación': r.sucursal,
+                'Fallos (Veces)': r.cantidadTardanzas,
+                'Minutos Tarde': r.totalMinutos,
+                'Monto Descuento (Gs)': r.totalDescuentos
+            }));
+            ws = XLSX.utils.json_to_sheet(dataToExport);
+        } else if (reportType === 'resumen') {
+            const dataToExport = reportData.map(r => ({
+                'Dependencia / Sucursal': r.sucursal,
+                'Fuerza Laboral': r.totalEmpleados,
+                'Total Marcaciones': r.totalMarcaciones,
+                'Incidencias (Tardanzas)': r.totalTardanzas,
+                'Penalizaciones (Gs)': r.totalDescuentos
+            }));
+            ws = XLSX.utils.json_to_sheet(dataToExport);
+        } else if (reportType === 'individual') {
+            const dataToExport = reportData.marcaciones.map(m => ({
+                'Fecha y Hora': formatDateTime(m.fechaHora),
+                'Transacción': m.tipo,
+                'Minutos de Tardanza': m.esTardia ? m.minutosTarde : 0,
+                'Penalización (Gs)': m.descuentoCalculado || 0
+            }));
+            ws = XLSX.utils.json_to_sheet(dataToExport);
+        }
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Reporte');
+        XLSX.writeFile(wb, nombreArchivo);
     };
 
+    const filteredUsersDropdown = usuarios.filter(u => {
+        const term = searchTerm.toLowerCase();
+        return (
+            u.nombreCompleto?.toLowerCase().includes(term) ||
+            u.username?.toLowerCase().includes(term) ||
+            u.numeroSocio?.toLowerCase().includes(term)
+        );
+    }).slice(0, 10);
+
     return (
-        <div className="admin-content">
+        <div className="admin-content animate-fade-in fade-in">
             <header className="content-header">
                 <div className="header-title">
-                    <h1>Centro de Reportes</h1>
-                    <p>Generación de informes detallados para análisis y gestión</p>
+                    <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <FileText size={32} style={{ color: 'var(--p-emerald-600)' }} />
+                        Centro de Reportes
+                    </h1>
+                    <p>Generación de informes detallados y analíticas para gestión de RRHH</p>
                 </div>
-                <div className="header-actions">
-                    <button className="btn btn-primary" onClick={exportarPDF} disabled={!reportData || reportData.length === 0}>
-                        <FileText size={18} /> Descargar PDF
+                <div className="header-actions" style={{ display: 'flex', gap: '0.75rem' }}>
+                    <button
+                        className="btn"
+                        onClick={exportarExcel}
+                        disabled={!reportData || reportData.metadata.count === 0}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'white', color: '#16a34a', border: '2px solid #16a34a', fontWeight: '700', borderRadius: '12px', padding: '0.5rem 1.25rem' }}
+                    >
+                        <FileSpreadsheet size={18} /> Excel
+                    </button>
+                    <button
+                        className="btn"
+                        onClick={exportarPDF}
+                        disabled={!reportData || reportData.metadata.count === 0}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#dc2626', color: 'white', border: 'none', fontWeight: '700', borderRadius: '12px', padding: '0.5rem 1.25rem', boxShadow: '0 4px 10px rgba(220, 38, 38, 0.3)' }}
+                    >
+                        <ArrowDownToLine size={18} /> PDF
                     </button>
                 </div>
             </header>
 
-            <div className="filters-bar" style={{ background: 'white', padding: '2rem', borderRadius: '24px', marginBottom: '3rem', border: '1px solid #f1f5f9', boxShadow: 'var(--admin-shadow-md)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+            <div className="dashboard-section" style={{ background: 'white', padding: '2rem', borderRadius: '24px', marginBottom: '2rem', boxShadow: 'var(--admin-shadow-md)' }}>
+                <h3 style={{ marginBottom: '1.5rem', fontWeight: '700', color: 'var(--p-slate-800)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Search size={20} /> Configurar Reporte
+                </h3>
+
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+                    <button
+                        className="btn"
+                        onClick={() => { if (reportType === 'individual') setReportType('asistencia'); setReportData(null); }}
+                        style={{
+                            flex: 1,
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: '16px',
+                            fontWeight: '800',
+                            fontSize: '1rem',
+                            background: reportType !== 'individual' ? 'var(--p-emerald-50)' : 'white',
+                            color: reportType !== 'individual' ? 'var(--p-emerald-700)' : '#64748b',
+                            border: reportType !== 'individual' ? '2px solid var(--p-emerald-500)' : '2px solid #e2e8f0',
+                            transition: 'all 0.3s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.75rem',
+                            boxShadow: reportType !== 'individual' ? '0 4px 15px rgba(16, 185, 129, 0.2)' : 'none'
+                        }}
+                    >
+                        <Building2 size={24} /> Consolidado Corporativo
+                    </button>
+                    <button
+                        className="btn"
+                        onClick={() => { setReportType('individual'); setReportData(null); }}
+                        style={{
+                            flex: 1,
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: '16px',
+                            fontWeight: '800',
+                            fontSize: '1rem',
+                            background: reportType === 'individual' ? '#eef2ff' : 'white',
+                            color: reportType === 'individual' ? 'var(--p-indigo-700)' : '#64748b',
+                            border: reportType === 'individual' ? '2px solid var(--p-indigo-500)' : '2px solid #e2e8f0',
+                            transition: 'all 0.3s ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.75rem',
+                            boxShadow: reportType === 'individual' ? '0 4px 15px rgba(99, 102, 241, 0.2)' : 'none'
+                        }}
+                    >
+                        <UserCheck size={24} /> Búsqueda por Colaborador
+                    </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+
+                    {/* TIPO DE REPORTE */}
+                    {reportType !== 'individual' && (
+                        <div className="form-group animate-fade-in">
+                            <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-slate-600)', marginBottom: '0.75rem' }}>Tipo de Documento</label>
+                            <div className="premium-input-group">
+                                <ScrollText size={18} />
+                                <select className="input" value={reportType} onChange={(e) => { setReportType(e.target.value); setReportData(null); }} style={{ height: '48px', border: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: '600', color: '#0f172a' }}>
+                                    <option value="asistencia">Sábana General de Asistencia</option>
+                                    <option value="descuentos">Nómina de Descuentos (Tardanzas)</option>
+                                    <option value="resumen">Resumen Directivo por Sucursales</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* RANGO DE FECHAS CUSTOMIZADO UX DD/MM/YYYY */}
                     <div className="form-group">
-                        <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-emerald-700)', marginBottom: '0.75rem' }}>Tipo de Reporte</label>
-                        <div className="premium-input-group">
-                            <FileText size={18} />
-                            <select className="input" value={reportType} onChange={(e) => setReportType(e.target.value)} style={{ height: '48px', border: '1.5px solid #f1f5f9', background: '#f8fafc', fontWeight: '600' }}>
-                                <option value="asistencia">Asistencia General</option>
-                                <option value="descuentos">Descuentos por Tardanza</option>
-                                <option value="resumen">Resumen por Sucursal</option>
-                            </select>
+                        <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-slate-600)', marginBottom: '0.75rem' }}>Desde Fecha</label>
+                        <div className="premium-input-group" style={{ position: 'relative' }}>
+                            <Calendar size={18} style={{ zIndex: 5 }} />
+                            <input
+                                type="text"
+                                readOnly
+                                className="input"
+                                value={dateRange.inicio.split('-').reverse().join('/')}
+                                style={{ height: '48px', border: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: '600', cursor: 'pointer', color: '#0f172a', width: '100%' }}
+                            />
+                            <input
+                                type="date"
+                                value={dateRange.inicio}
+                                onChange={(e) => setDateRange({ ...dateRange, inicio: e.target.value })}
+                                style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', top: 0, left: 0, cursor: 'pointer', zIndex: 10 }}
+                            />
                         </div>
                     </div>
 
-                    {currentUser?.rol === 'ADMIN' && (
+                    <div className="form-group">
+                        <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-slate-600)', marginBottom: '0.75rem' }}>Hasta Fecha</label>
+                        <div className="premium-input-group" style={{ position: 'relative' }}>
+                            <Calendar size={18} style={{ zIndex: 5 }} />
+                            <input
+                                type="text"
+                                readOnly
+                                className="input"
+                                value={dateRange.fin.split('-').reverse().join('/')}
+                                style={{ height: '48px', border: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: '600', cursor: 'pointer', color: '#0f172a', width: '100%' }}
+                            />
+                            <input
+                                type="date"
+                                value={dateRange.fin}
+                                onChange={(e) => setDateRange({ ...dateRange, fin: e.target.value })}
+                                style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', top: 0, left: 0, cursor: 'pointer', zIndex: 10 }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* FILTROS CONDICIONALES */}
+                    {reportType !== 'individual' && currentUser?.rol === 'ADMIN' && (
                         <div className="form-group">
-                            <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-emerald-700)', marginBottom: '0.75rem' }}>Sucursal</label>
+                            <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-slate-600)', marginBottom: '0.75rem' }}>Sucursal Objetivo</label>
                             <div className="premium-input-group">
                                 <Building2 size={18} />
-                                <select className="input" value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)} style={{ height: '48px', border: '1.5px solid #f1f5f9', background: '#f8fafc', fontWeight: '600' }}>
-                                    <option value="">Todas las sedes</option>
+                                <select className="input" value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)} style={{ height: '48px', border: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: '600' }}>
+                                    <option value="">Consolidado Corporativo (Todas)</option>
                                     {sucursales.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                                 </select>
                             </div>
                         </div>
                     )}
 
-                    <div className="form-group">
-                        <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-emerald-700)', marginBottom: '0.75rem' }}>Fecha Inicio</label>
-                        <div className="premium-input-group">
-                            <Calendar size={18} />
-                            <input type="date" className="input" value={dateRange.inicio} onChange={(e) => setDateRange({ ...dateRange, inicio: e.target.value })} style={{ height: '48px', border: '1.5px solid #f1f5f9', background: '#f8fafc', fontWeight: '600' }} />
-                        </div>
-                    </div>
+                    {reportType === 'individual' && (
+                        <div className="form-group animate-fade-in" style={{ position: 'relative' }}>
+                            <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-indigo-600)', marginBottom: '0.75rem' }}>Buscar Colaborador</label>
+                            <div
+                                className="premium-input-group"
+                                style={{ border: isDropdownOpen ? '2px solid var(--p-indigo-500)' : '2px solid #c7d2fe', background: '#eef2ff', cursor: 'text' }}
+                                onClick={() => setIsDropdownOpen(true)}
+                            >
+                                <Search size={18} color="var(--p-indigo-600)" />
+                                <input
+                                    type="text"
+                                    className="input"
+                                    placeholder="Ej: Tobias, CI: 123456 o Socio: 987"
+                                    value={searchTerm}
+                                    onChange={(e) => {
+                                        setSearchTerm(e.target.value);
+                                        setIsDropdownOpen(true);
+                                        if (e.target.value === '') setUsuarioFiltro('');
+                                    }}
+                                    onFocus={() => setIsDropdownOpen(true)}
+                                    style={{ height: '48px', border: 'none', background: 'transparent', fontWeight: '600', paddingLeft: '0.5rem', flex: 1, outline: 'none' }}
+                                />
+                                {usuarioFiltro && (
+                                    <div style={{ position: 'absolute', right: '3rem', top: '50%', transform: 'translateY(-50%)' }}>
+                                        <CheckCircle2 color="var(--p-indigo-600)" size={20} />
+                                    </div>
+                                )}
+                                {/* Botón para forzar cerrado del dropdown */}
+                                {isDropdownOpen && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(false); }}
+                                        style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                )}
+                            </div>
 
-                    <div className="form-group">
-                        <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-emerald-700)', marginBottom: '0.75rem' }}>Fecha Fin</label>
-                        <div className="premium-input-group">
-                            <Calendar size={18} />
-                            <input type="date" className="input" value={dateRange.fin} onChange={(e) => setDateRange({ ...dateRange, fin: e.target.value })} style={{ height: '48px', border: '1.5px solid #f1f5f9', background: '#f8fafc', fontWeight: '600' }} />
+                            {/* DROPDOWN FLOTANTE A MEDIDA */}
+                            {isDropdownOpen && (
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    right: 0,
+                                    marginTop: '0.5rem',
+                                    background: 'white',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '12px',
+                                    boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)',
+                                    zIndex: 1000,
+                                    maxHeight: '250px',
+                                    overflowY: 'auto'
+                                }}>
+                                    {filteredUsersDropdown.length === 0 ? (
+                                        <div style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+                                            No se encontraron funcionarios con ese criterio
+                                        </div>
+                                    ) : (
+                                        filteredUsersDropdown.map(u => (
+                                            <div
+                                                key={u.id}
+                                                style={{
+                                                    padding: '0.75rem 1rem',
+                                                    cursor: 'pointer',
+                                                    borderBottom: '1px solid #f1f5f9',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    background: usuarioFiltro === u.id.toString() ? '#eef2ff' : 'transparent'
+                                                }}
+                                                onClick={() => {
+                                                    setUsuarioFiltro(u.id.toString());
+                                                    setSearchTerm(u.nombreCompleto);
+                                                    setIsDropdownOpen(false);
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = usuarioFiltro === u.id.toString() ? '#eef2ff' : 'transparent'}
+                                            >
+                                                <span style={{ fontWeight: '700', color: '#0f172a' }}>{u.nombreCompleto}</span>
+                                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>CI: {u.username} • {u.sucursal?.nombre || 'Sin Sede'}</span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
                         </div>
-                    </div>
+                    )}
                 </div>
 
-                <button className="btn btn-primary" onClick={generarReporte} disabled={generatingReport} style={{ width: '100%', height: '54px', borderRadius: '16px', fontSize: '1rem' }}>
-                    {generatingReport ? <><Loader2 size={20} className="animate-spin" /> Procesando datos...</> : <><TrendingUp size={20} /> Generar Informe Detallado</>}
+                <button
+                    className="btn btn-primary"
+                    onClick={generarReporte}
+                    disabled={generatingReport}
+                    style={{ width: '100%', height: '54px', borderRadius: '16px', fontSize: '0.95rem', background: 'linear-gradient(135deg, var(--p-emerald-600) 0%, var(--p-emerald-500) 100%)', border: 'none', boxShadow: '0 10px 20px -10px var(--p-emerald-500)' }}
+                >
+                    {generatingReport ? <><Loader2 size={24} className="animate-spin" /> Analizando Base de Datos...</> : <><TrendingUp size={24} /> Emitir Documento</>}
                 </button>
             </div>
 
-            {/* Contenido del Reporte para PDF */}
-            <div id="report-content" style={{ background: 'white', borderRadius: '16px', overflow: 'hidden' }}>
-                {!reportData ? (
-                    <div className="empty-state-large" style={{ padding: '4rem' }}>
-                        <FileText size={64} />
-                        <h3>Selecciona los filtros y genera un reporte</h3>
-                        <p>Los datos aparecerán aquí listos para exportar</p>
-                    </div>
-                ) : reportData.length === 0 ? (
-                    <div className="empty-state-large" style={{ padding: '4rem' }}>
-                        <AlertTriangle size={64} style={{ color: '#f59e0b' }} />
-                        <h3>No hay datos para el período seleccionado</h3>
-                        <p>Intenta ajustar los filtros o el rango de fechas</p>
-                    </div>
-                ) : (
-                    <>
-                        {/* ENCABEZADO PROFESIONAL DEL REPORTE */}
-                        <div style={{
-                            background: 'linear-gradient(135deg, #166534 0%, #15803d 50%, #22c55e 100%)',
-                            padding: '2rem',
-                            color: 'white',
-                            borderBottom: '4px solid #fbbf24'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                                <img
-                                    src="/logo_cooperativa.png"
-                                    alt="Logo Cooperativa Reducto"
-                                    style={{
-                                        width: '80px',
-                                        height: '80px',
-                                        borderRadius: '50%',
-                                        border: '3px solid white',
-                                        boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
-                                        background: 'white'
-                                    }}
-                                />
-                                <div>
-                                    <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: '700', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>
-                                        COOPERATIVA REDUCTO LTDA.
-                                    </h1>
-                                    <p style={{ margin: '0.25rem 0 0 0', fontSize: '1rem', opacity: 0.9 }}>
-                                        de Microfinanza
-                                    </p>
+            {/* ZONA DE VISUALIZACIÓN / PAPEL (Renderizado para PDF) */}
+            <div style={{ background: '#e2e8f0', padding: '2rem', borderRadius: '24px', display: 'flex', justifyContent: 'center' }}>
+                <div id="report-content" style={{
+                    background: 'white',
+                    borderRadius: '8px',
+                    width: '100%',
+                    maxWidth: '21cm', // A4 formata portrait
+                    minHeight: '29.7cm',
+                    boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
+                    overflow: 'hidden',
+                    fontFamily: "'Inter', sans-serif"
+                }}>
+
+                    {!reportData ? (
+                        <div style={{ padding: '4rem 2rem', textAlign: 'center', opacity: 0.5 }}>
+                            <FileText size={80} style={{ margin: '0 auto 2rem', color: '#94a3b8' }} />
+                            <h2 style={{ fontSize: '1.5rem', color: '#475569' }}>Zona de Previsualización de Documento</h2>
+                            <p>Configure los filtros superiores y presione "Emitir Documento"</p>
+                        </div>
+                    ) : (
+                        <>
+                            {/* CABECERA CORPORATIVA PDF */}
+                            <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+                                    <img src="/logo_cooperativa.png" alt="Logo" style={{ width: '90px', height: '90px', objectFit: 'contain' }} />
+                                    <div>
+                                        <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '1.4rem', color: '#0f172a', fontWeight: '800' }}>COOPERATIVA REDUCTO LTDA.</h1>
+                                        <p style={{ margin: 0, color: '#64748b', fontSize: '1rem', letterSpacing: '1px', textTransform: 'uppercase' }}>DE MICROFINANZA</p>
+                                    </div>
+                                </div>
+                                <div style={{ textAlign: 'right', fontSize: '0.85rem', color: '#64748b' }}>
+                                    <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '1rem', marginBottom: '0.25rem' }}>{reportTypeNames[reportType]}</div>
+                                    <div style={{ marginBottom: '0.25rem' }}>Fecha de Emisión: {reportGeneratedAt?.toLocaleDateString('es-PY')}</div>
+                                    <div>Responsable: {currentUser?.nombreCompleto || 'Sistema Automático'}</div>
                                 </div>
                             </div>
 
-                            <div style={{
-                                background: 'rgba(255,255,255,0.15)',
-                                padding: '1.25rem',
-                                borderRadius: '12px',
-                                backdropFilter: 'blur(10px)'
-                            }}>
-                                <h2 style={{ margin: '0 0 1rem 0', fontSize: '1.25rem', fontWeight: '600' }}>
-                                    📊 {reportTypeNames[reportType]}
-                                </h2>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', fontSize: '0.9rem' }}>
-                                    <div>
-                                        <strong>Período:</strong><br />
-                                        {formatDate(dateRange.inicio)} - {formatDate(dateRange.fin)}
+                            {/* CABECERA SECUNDARIA - DATOS DEL REPORTE */}
+                            <div style={{ padding: '1rem 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                {reportType === 'individual' ? (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
+                                        <div><span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Funcionario</span><br /><strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{reportData.empleado.nombreCompleto}</strong></div>
+                                        <div><span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Nº de Cédula</span><br /><strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{reportData.empleado.username}</strong></div>
+                                        <div><span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Cargo/Rol</span><br /><strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{reportData.empleado.rol}</strong></div>
+                                        <div><span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Período Evaluado</span><br /><strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{formatDate(dateRange.inicio)} al {formatDate(dateRange.fin)}</strong></div>
                                     </div>
-                                    <div>
-                                        <strong>Sucursal:</strong><br />
-                                        {getSucursalNombre()}
+                                ) : (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
+                                        <div><span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Período Analizado</span><br /><strong style={{ fontSize: '0.95rem', color: '#16a34a' }}>{formatDate(dateRange.inicio)} al {formatDate(dateRange.fin)}</strong></div>
+                                        <div><span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Alcance (Sucursal)</span><br /><strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{sucursalFiltro ? sucursales.find(s => s.id === parseInt(sucursalFiltro))?.nombre : 'Todas las Dependencias'}</strong></div>
+                                        <div><span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Sujetos de Análisis</span><br /><strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{reportData.length} Registros Activos</strong></div>
                                     </div>
-                                    <div>
-                                        <strong>Generado por:</strong><br />
-                                        {currentUser?.nombreCompleto || 'Administrador'}
-                                    </div>
-                                    <div>
-                                        <strong>Fecha y Hora:</strong><br />
-                                        {reportGeneratedAt?.toLocaleString('es-PY', {
-                                            day: '2-digit',
-                                            month: '2-digit',
-                                            year: 'numeric',
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        })}
-                                    </div>
-                                </div>
+                                )}
                             </div>
-                        </div>
 
-                        {/* CONTENIDO DE LA TABLA */}
-                        <div style={{ padding: '1.5rem' }}>
-                            {reportType === 'asistencia' && (
-                                <table className="data-table" style={{ width: '100%' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>Colaborador</th>
-                                            <th>Cédula</th>
-                                            <th>Sucursal</th>
-                                            <th style={{ textAlign: 'center' }}>Días Trabajados</th>
-                                            <th style={{ textAlign: 'center' }}>Tardanzas</th>
-                                            <th style={{ textAlign: 'center' }}>Puntualidad</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {reportData.map((r, i) => (
-                                            <tr key={i}>
-                                                <td style={{ fontWeight: '600' }}>{r.nombre}</td>
-                                                <td>{r.cedula}</td>
-                                                <td>{r.sucursal}</td>
-                                                <td style={{ textAlign: 'center' }}>{r.diasTrabajados}</td>
-                                                <td style={{ textAlign: 'center' }}>
-                                                    {r.tardanzas > 0 ? (
-                                                        <span style={{ background: '#fef2f2', color: '#dc2626', padding: '0.25rem 0.75rem', borderRadius: '999px', fontWeight: '600' }}>
-                                                            {r.tardanzas}
-                                                        </span>
-                                                    ) : '-'}
-                                                </td>
-                                                <td style={{ textAlign: 'center' }}>
-                                                    <span style={{
-                                                        color: r.puntualidad >= 90 ? '#16a34a' : r.puntualidad >= 70 ? '#f59e0b' : '#dc2626',
-                                                        fontWeight: '700',
-                                                        fontSize: '1.1rem'
-                                                    }}>
-                                                        {r.puntualidad}%
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            )}
-                            {reportType === 'descuentos' && (
-                                <table className="data-table" style={{ width: '100%' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>Colaborador</th>
-                                            <th>Cédula</th>
-                                            <th>Sucursal</th>
-                                            <th style={{ textAlign: 'center' }}>Tardanzas</th>
-                                            <th style={{ textAlign: 'center' }}>Minutos Totales</th>
-                                            <th style={{ textAlign: 'right' }}>Total Descuento</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {reportData.map((r, i) => (
-                                            <tr key={i}>
-                                                <td style={{ fontWeight: '600' }}>{r.nombre}</td>
-                                                <td>{r.cedula}</td>
-                                                <td>{r.sucursal}</td>
-                                                <td style={{ textAlign: 'center' }}>
-                                                    <span style={{ background: '#fef2f2', color: '#dc2626', padding: '0.25rem 0.75rem', borderRadius: '999px', fontWeight: '600' }}>
-                                                        {r.cantidadTardanzas}
-                                                    </span>
-                                                </td>
-                                                <td style={{ textAlign: 'center' }}>{r.totalMinutos} min</td>
-                                                <td style={{ textAlign: 'right', fontWeight: '700', color: '#dc2626', fontSize: '1.1rem' }}>
-                                                    ₲ {r.totalDescuentos.toLocaleString('de-DE')}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            )}
-                            {reportType === 'resumen' && (
-                                <table className="data-table" style={{ width: '100%' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>Sucursal</th>
-                                            <th style={{ textAlign: 'center' }}>Total Empleados</th>
-                                            <th style={{ textAlign: 'center' }}>Marcaciones</th>
-                                            <th style={{ textAlign: 'center' }}>Tardanzas</th>
-                                            <th style={{ textAlign: 'right' }}>Total Descuentos</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {reportData.map((r, i) => (
-                                            <tr key={i}>
-                                                <td style={{ fontWeight: '600' }}>{r.sucursal}</td>
-                                                <td style={{ textAlign: 'center' }}>{r.totalEmpleados}</td>
-                                                <td style={{ textAlign: 'center' }}>{r.totalMarcaciones}</td>
-                                                <td style={{ textAlign: 'center' }}>
-                                                    <span style={{ background: '#fef2f2', color: '#dc2626', padding: '0.25rem 0.75rem', borderRadius: '999px', fontWeight: '600' }}>
-                                                        {r.totalTardanzas}
-                                                    </span>
-                                                </td>
-                                                <td style={{ textAlign: 'right', fontWeight: '700', color: '#dc2626', fontSize: '1.1rem' }}>
-                                                    ₲ {r.totalDescuentos.toLocaleString('de-DE')}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            )}
-                        </div>
+                            {/* CUERPO DEL REPORTE */}
+                            <div style={{ padding: '3rem' }}>
+                                {/* ========== KARDEX INDIVIDUAL ========== */}
+                                {reportType === 'individual' && reportData && (
+                                    <>
+                                        {/* KARDEX STATS */}
+                                        <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+                                            <div style={{ flex: 1, padding: '1.5rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', borderLeft: '4px solid #3b82f6' }}>
+                                                <div style={{ color: '#64748b', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.5rem' }}>Días Asistidos</div>
+                                                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#0f172a' }}>{reportData.stats.diasAsistidos}</div>
+                                            </div>
+                                            <div style={{ flex: 1, padding: '1.5rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', borderLeft: '4px solid #f59e0b' }}>
+                                                <div style={{ color: '#64748b', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.5rem' }}>Minutos de Tardanza T.</div>
+                                                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#d97706' }}>{reportData.stats.minutosTardeTotal}<span style={{ fontSize: '1rem' }}>min</span></div>
+                                            </div>
+                                            <div style={{ flex: 1, padding: '1.5rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', borderLeft: '4px solid #ef4444' }}>
+                                                <div style={{ color: '#64748b', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.5rem' }}>Descuento Proyectado</div>
+                                                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#dc2626' }}>₲ {reportData.stats.descuentoTotal.toLocaleString('de-DE')}</div>
+                                            </div>
+                                        </div>
 
-                        {/* PIE DEL REPORTE */}
-                        <div style={{
-                            background: '#f8fafc',
-                            padding: '1rem 2rem',
-                            borderTop: '1px solid #e2e8f0',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            fontSize: '0.8rem',
-                            color: '#64748b'
-                        }}>
-                            <div>
-                                <strong>Sistema RelojReducto</strong> - Control de Asistencia
+                                        <h3 style={{ fontSize: '1.25rem', color: '#0f172a', fontWeight: '700', marginBottom: '1rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>Historial del Reloj Marcador</h3>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                            <thead>
+                                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                                                    <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '700', color: '#475569' }}>Fecha y Hora</th>
+                                                    <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '700', color: '#475569' }}>Transacción</th>
+                                                    <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '700', color: '#475569' }}>Tardanza</th>
+                                                    <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '700', color: '#eab308' }}>Penalización</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {reportData.marcaciones.map((m, i) => (
+                                                    <tr key={i} style={{ borderBottom: '1px solid #e2e8f0', background: m.esTardia ? '#fffbeb' : 'white' }}>
+                                                        <td style={{ padding: '0.75rem 1rem', fontWeight: '500' }}>{formatDateTime(m.fechaHora)}</td>
+                                                        <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                                            <span style={{ padding: '0.2rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: '700', background: m.tipo === 'ENTRADA' ? '#dcfce7' : '#fee2e2', color: m.tipo === 'ENTRADA' ? '#16a34a' : '#dc2626' }}>
+                                                                {m.tipo}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ padding: '0.75rem 1rem', textAlign: 'center', color: m.esTardia ? '#d97706' : '#94a3b8', fontWeight: m.esTardia ? '700' : '400' }}>
+                                                            {m.esTardia ? `${m.minutosTarde} min` : 'A Tiempo'}
+                                                        </td>
+                                                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '700', color: '#dc2626' }}>
+                                                            {m.descuentoCalculado > 0 ? `₲ ${m.descuentoCalculado.toLocaleString('de-DE')}` : '-'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {reportData.marcaciones.length === 0 && (
+                                                    <tr><td colSpan="4" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontWeight: '700' }}>No hay marcaciones para este empleado en el período indicado (Registro de Inasistencia / Ausente).</td></tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </>
+                                )}
+
+                                {/* ========== SABANA ASISTENCIA GENERAL ========== */}
+                                {reportType === 'asistencia' && (
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                        <thead>
+                                            <tr style={{ borderBottom: '2px solid #22c55e' }}>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '700', color: '#166534' }}>Colaborador</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '700' }}>Cédula / Área</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '700' }}>Días Cumplidos</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '700' }}>Llegadas Tardías</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '700' }}>Índice Puntualidad</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.length === 0 ? (
+                                                <tr><td colSpan="5" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontWeight: '700' }}>No existen registros aplicables para esta sucursal o no hay marcaciones. (Todos Ausentes)</td></tr>
+                                            ) : reportData.map((r, i) => (
+                                                <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                                    <td style={{ padding: '0.5rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{r.nombre}</td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>{r.cedula}<br /><span style={{ fontSize: '0.75rem' }}>{r.sucursal}</span></td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '600' }}>{r.diasTrabajados}</td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: r.tardanzas > 0 ? '#dc2626' : '#94a3b8', fontWeight: r.tardanzas > 0 ? '700' : '400' }}>{r.tardanzas > 0 ? r.tardanzas : '-'}</td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '800', color: r.puntualidad === 100 ? '#16a34a' : r.puntualidad >= 80 ? '#eab308' : '#dc2626' }}>{r.puntualidad}%</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
+
+                                {/* ========== NOMINA DE DESCUENTOS ========== */}
+                                {reportType === 'descuentos' && (
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                        <thead>
+                                            <tr style={{ background: '#fef2f2', borderBottom: '2px solid #ef4444' }}>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '700', color: '#991b1b' }}>Sujeto de Descuento</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '700', color: '#991b1b' }}>Locación</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '700', color: '#991b1b' }}>Fallos (Veces)</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '700', color: '#991b1b' }}>Total Deducción (₲)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.length === 0 ? (
+                                                <tr><td colSpan="4" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontWeight: '700' }}>No hay descuentos ni tardanzas registradas en este período. ¡Excelente puntualidad!</td></tr>
+                                            ) : reportData.map((r, i) => (
+                                                <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                                    <td style={{ padding: '0.5rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{r.nombre}<br /><span style={{ fontSize: '0.75rem', fontWeight: '400', color: '#64748b' }}>CI: {r.cedula}</span></td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>{r.sucursal}</td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                                                        <span style={{ background: '#fef2f2', color: '#ef4444', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: '700' }}>{r.cantidadTardanzas}</span>
+                                                        <br /><span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{r.totalMinutos} min total</span>
+                                                    </td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '800', fontSize: '0.95rem', color: '#dc2626' }}>₲ {r.totalDescuentos.toLocaleString('de-DE')}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
+
+                                {/* ========== RESUMEN EJECUTIVO ========== */}
+                                {reportType === 'resumen' && (
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                        <thead>
+                                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '700', color: '#334155' }}>Dependencia / Sucursal</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '700', color: '#334155' }}>Fuerza Laboral</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '700', color: '#334155' }}>Total Marcaciones</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '700', color: '#d97706' }}>Incidencias (Faltas/Tarde)</th>
+                                                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '700', color: '#dc2626' }}>Impacto Econ. Penalizaciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.length === 0 ? (
+                                                <tr><td colSpan="5" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontWeight: '700' }}>No hay información de resumen para las sucursales en este periodo.</td></tr>
+                                            ) : reportData.map((r, i) => (
+                                                <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                                    <td style={{ padding: '0.5rem 0.75rem', fontWeight: '700', color: '#0f172a', fontSize: '0.95rem' }}>{r.sucursal}</td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', fontWeight: '600', color: '#64748b' }}>{r.totalEmpleados} func.</td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: '#64748b' }}>{r.totalMarcaciones}</td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                                                        <span style={{ fontWeight: '700', color: r.totalTardanzas > 0 ? '#d97706' : '#94a3b8' }}>{r.totalTardanzas}</span>
+                                                    </td>
+                                                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '800', fontSize: '0.95rem', color: r.totalDescuentos > 0 ? '#dc2626' : '#94a3b8' }}>
+                                                        {r.totalDescuentos > 0 ? `₲ ${r.totalDescuentos.toLocaleString('de-DE')}` : '0'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
                             </div>
-                            <div>
-                                Documento generado automáticamente • {reportData.length} registro(s)
+
+                            {/* PIE DE PAGINA OFICIAL */}
+                            <div style={{ padding: '1rem 2rem', borderTop: '2px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', textAlign: 'center', marginTop: 'auto' }}>
+                                Documento Electrónico Generado por el Software Gestor de Asistencia y Recursos Humanos
+                                <br />Cooperativa Multiactiva Reducto Limitada - Todos los derechos reservados
                             </div>
-                        </div>
-                    </>
-                )}
+                        </>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -2646,6 +3328,7 @@ function AdminReportes() {
 // ===========================================
 
 function AdminTurnos() {
+    const { confirm, alert } = useModal();
     const [turnos, setTurnos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -2678,17 +3361,18 @@ function AdminTurnos() {
             setShowModal(false);
             cargarTurnos();
         } catch (err) {
-            alert('Error al guardar turno: ' + (err.response?.data?.mensaje || err.message));
+            alert('Error al guardar', 'No pudimos guardar el turno: ' + (err.response?.data?.mensaje || err.message), 'error');
         }
     };
 
     const handleDelete = async (id) => {
-        if (!confirm('¿Desea desactivar este turno?')) return;
+        const ok = await confirm('¿Desactivar Turno?', '¿Estás seguro de que deseas desactivar este turno? No aparecerá en las nuevas asignaciones.');
+        if (!ok) return;
         try {
             await gestionService.deleteTurno(id);
             cargarTurnos();
         } catch (err) {
-            alert('Error al desactivar turno: ' + (err.response?.data?.mensaje || err.message));
+            alert('Error', 'No se pudo desactivar el turno: ' + (err.response?.data?.mensaje || err.message), 'error');
         }
     };
 
@@ -2840,7 +3524,7 @@ function TurnoModal({ turno, onClose, onSave }) {
                         <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--p-emerald-900)', margin: 0 }}>
                             {turno ? 'Editar Turno' : 'Crear Nuevo Turno'}
                         </h2>
-                        <p style={{ margin: '0.25rem 0 0 0', color: 'var(--admin-text-muted)', fontSize: '0.9rem' }}>
+                        <p style={{ margin: '0.25rem 0 0 0', color: 'var(--admin-text-muted)', fontSize: '0.8rem' }}>
                             Define los parámetros de horario y tolerancia
                         </p>
                     </div>
@@ -2959,6 +3643,7 @@ function TurnoModal({ turno, onClose, onSave }) {
 // ===========================================
 
 function AdminPermisos() {
+    const { confirm, alert } = useModal();
     const [permisos, setPermisos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filtroEstado, setFiltroEstado] = useState('');
@@ -2983,26 +3668,30 @@ function AdminPermisos() {
     };
 
     const handleAprobar = async (id) => {
-        if (!confirm('¿Aprobar esta solicitud de permiso?')) return;
+        const ok = await confirm('Aprobar Solicitud', '¿Deseas aprobar esta solicitud de permiso/ausencia?');
+        if (!ok) return;
         try {
             await gestionService.aprobarPermiso(id, comentario);
             setComentario('');
             setShowModal(false);
             cargarPermisos();
+            alert('Aprobado', 'La solicitud ha sido aprobada correctamente.', 'success');
         } catch (err) {
-            alert('Error: ' + err.message);
+            alert('Error', err.message, 'error');
         }
     };
 
     const handleRechazar = async (id) => {
-        if (!confirm('¿Rechazar esta solicitud de permiso?')) return;
+        const ok = await confirm('Rechazar Solicitud', '¿Deseas rechazar esta solicitud de permiso/ausencia?');
+        if (!ok) return;
         try {
             await gestionService.rechazarPermiso(id, comentario);
             setComentario('');
             setShowModal(false);
             cargarPermisos();
+            alert('Rechazado', 'La solicitud ha sido rechazada.', 'success');
         } catch (err) {
-            alert('Error: ' + err.message);
+            alert('Error', err.message, 'error');
         }
     };
 
@@ -3016,7 +3705,7 @@ function AdminPermisos() {
             </header>
 
             <div className="content-body">
-                <div className="filters-bar" style={{ background: 'white', padding: '1rem', borderRadius: '18px', border: '1px solid #f1f5f9', marginBottom: '2.5rem' }}>
+                <div className="filters-bar" style={{ background: 'white', padding: '0.5rem 0.75rem', borderRadius: '18px', border: '1px solid #f1f5f9', marginBottom: '2.5rem' }}>
                     <div className="filter-group" style={{ flex: 1 }}>
                         <div className="premium-input-group">
                             <Filter size={18} />
@@ -3194,8 +3883,7 @@ function AdminConfiguracion() {
         { id: 'marcacion', label: 'Marcación', icon: MapPin },
         { id: 'localidades', label: 'Localidades', icon: Building2 },
         { id: 'feriados', label: 'Feriados', icon: Calendar },
-        { id: 'vacaciones', label: 'Vacaciones', icon: FileText },
-        { id: 'desarrollo', label: 'Herramientas de Desarrollo', icon: ShieldAlert }
+        { id: 'vacaciones', label: 'Vacaciones', icon: FileText }
     ];
 
     return (
@@ -3222,7 +3910,7 @@ function AdminConfiguracion() {
                     <Route path="feriados" element={<AdminFeriados />} />
                     <Route path="marcacion" element={<AdminConfigMarcacion />} />
 
-                    <Route path="desarrollo" element={<AdminDesarrollo />} />
+
                     <Route path="pagos" element={<AdminPagos />} />
                     <Route path="colaboradores" element={<AdminGestionUsuarios />} />
                     <Route path="*" element={<div className="empty-state-large"><h3>Módulo en desarrollo</h3><p>Esta sección estará disponible pronto</p></div>} />
@@ -3233,11 +3921,18 @@ function AdminConfiguracion() {
 }
 
 function AdminConfigMarcacion() {
+    const { confirm, alert } = useModal();
     const [turnos, setTurnos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [editando, setEditando] = useState(null);
-    const [form, setForm] = useState({ nombre: '', horaEntrada: '08:00', horaSalida: '17:00', toleranciaMinutos: 10 });
+    const [form, setForm] = useState({
+        nombre: '',
+        horaEntrada: '08:00',
+        horaSalida: '17:00',
+        toleranciaMinutos: 10,
+        diasSemana: '1,2,3,4,5' // Lunes a Viernes por defecto
+    });
     const [guardando, setGuardando] = useState(false);
 
     useEffect(() => { cargarTurnos(); }, []);
@@ -3245,10 +3940,33 @@ function AdminConfigMarcacion() {
     const cargarTurnos = async () => {
         setLoading(true);
         try {
-            const data = await gestionService.getAllTurnos();
+            const data = await gestionService.getTurnos();
             setTurnos(data);
         } catch (e) { console.error(e); }
         setLoading(false);
+    };
+
+    const calcularHorasLaborales = (entrada, salida) => {
+        if (!entrada || !salida) return '-';
+        try {
+            const [h1, m1] = entrada.split(':').map(Number);
+            const [h2, m2] = salida.split(':').map(Number);
+
+            let totalMinutos = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (totalMinutos < 0) totalMinutos += 24 * 60;
+
+            // Restar 1 hora de almuerzo (60 min)
+            let minutosLaborales = totalMinutos - 60;
+            if (minutosLaborales < 0) minutosLaborales = 0;
+
+            const horas = Math.floor(minutosLaborales / 60);
+            const minutos = minutosLaborales % 60;
+
+            if (minutos === 0) return `${horas} hs`;
+            return `${horas}h ${minutos}m`;
+        } catch (e) {
+            return '-';
+        }
     };
 
     const handleGuardar = async () => {
@@ -3265,7 +3983,7 @@ function AdminConfigMarcacion() {
             }
             setShowForm(false);
             setEditando(null);
-            setForm({ nombre: '', horaEntrada: '08:00', horaSalida: '17:00', toleranciaMinutos: 10 });
+            setForm({ nombre: '', horaEntrada: '08:00', horaSalida: '17:00', toleranciaMinutos: 10, diasSemana: '1,2,3,4,5' });
             cargarTurnos();
         } catch (e) {
             alert('Error: ' + (e.response?.data?.error || e.message));
@@ -3279,17 +3997,22 @@ function AdminConfigMarcacion() {
             nombre: turno.nombre,
             horaEntrada: turno.horaEntrada || '08:00',
             horaSalida: turno.horaSalida || '17:00',
-            toleranciaMinutos: turno.toleranciaMinutos != null ? turno.toleranciaMinutos : 10
+            toleranciaMinutos: turno.toleranciaMinutos != null ? turno.toleranciaMinutos : 10,
+            diasSemana: turno.diasSemana || '1,2,3,4,5'
         });
         setShowForm(true);
     };
 
     const handleEliminar = async (id) => {
-        if (!window.confirm('¿Eliminar este turno? Los empleados asignados quedarán sin turno.')) return;
+        const ok = await confirm('¿Eliminar Turno?', '¿Estás seguro de que deseas eliminar este turno? Los empleados asignados quedarán sin un horario definido.');
+        if (!ok) return;
         try {
             await gestionService.deleteTurno(id);
             cargarTurnos();
-        } catch (e) { alert('Error: ' + (e.response?.data?.error || e.message)); }
+            alert('Eliminado', 'El turno ha sido eliminado correctamente.', 'success');
+        } catch (e) {
+            alert('Error al eliminar', e.response?.data?.error || e.message, 'error');
+        }
     };
 
     const cardStyle = {
@@ -3299,7 +4022,7 @@ function AdminConfigMarcacion() {
 
     const inputStyle = {
         width: '100%', padding: '0.6rem 0.75rem', borderRadius: 10,
-        border: '1px solid #e2e8f0', fontSize: '0.9rem', boxSizing: 'border-box'
+        border: '1px solid #e2e8f0', fontSize: '0.8rem', boxSizing: 'border-box'
     };
 
     const thStyle = {
@@ -3314,14 +4037,14 @@ function AdminConfigMarcacion() {
     };
 
     return (
-        <div style={{ padding: '1rem' }}>
+        <div style={{ padding: '0.5rem 0.75rem' }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
                 <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <Clock size={26} style={{ color: '#8b5cf6' }} />
                     Configuración de Turnos y Tolerancia
                 </h2>
-                <button onClick={() => { setShowForm(!showForm); setEditando(null); setForm({ nombre: '', horaEntrada: '08:00', horaSalida: '17:00', toleranciaMinutos: 10 }); }}
+                <button onClick={() => { setShowForm(!showForm); setEditando(null); setForm({ nombre: '', horaEntrada: '08:00', horaSalida: '17:00', toleranciaMinutos: 10, diasSemana: '1,2,3,4,5' }); }}
                     style={{
                         display: 'flex', alignItems: 'center', gap: 6,
                         padding: '0.5rem 1rem', borderRadius: 10, border: 'none',
@@ -3337,7 +4060,7 @@ function AdminConfigMarcacion() {
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                     <AlertCircle size={20} style={{ color: '#7c3aed', flexShrink: 0, marginTop: 2 }} />
                     <div>
-                        <h4 style={{ margin: '0 0 4px', fontWeight: 700, color: '#5b21b6', fontSize: '0.9rem' }}>¿Qué es la tolerancia?</h4>
+                        <h4 style={{ margin: '0 0 4px', fontWeight: 700, color: '#5b21b6', fontSize: '0.8rem' }}>¿Qué es la tolerancia?</h4>
                         <p style={{ margin: 0, fontSize: '0.82rem', color: '#6d28d9', lineHeight: 1.5 }}>
                             La <strong>tolerancia</strong> define cuántos minutos después de la hora de entrada se permite marcar sin que se considere <strong>tardanza</strong>.
                             Por ejemplo: si el turno empieza a las 08:00 y la tolerancia es <strong>10 minutos</strong>,
@@ -3386,6 +4109,51 @@ function AdminConfigMarcacion() {
                                 Minutos de gracia antes de marcar tardanza
                             </span>
                         </div>
+                        <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: 8 }}>Días de Aplicación*</label>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                {[
+                                    { id: '1', label: 'L' },
+                                    { id: '2', label: 'M' },
+                                    { id: '3', label: 'M' },
+                                    { id: '4', label: 'J' },
+                                    { id: '5', label: 'V' },
+                                    { id: '6', label: 'S' },
+                                    { id: '7', label: 'D' }
+                                ].map((dia, idx) => {
+                                    const selected = form.diasSemana?.split(',').includes(dia.id);
+                                    return (
+                                        <button
+                                            key={dia.id + idx}
+                                            type="button"
+                                            onClick={() => {
+                                                let dias = (form.diasSemana || '').split(',').filter(d => d);
+                                                if (selected) {
+                                                    dias = dias.filter(d => d !== dia.id);
+                                                } else {
+                                                    dias.push(dia.id);
+                                                }
+                                                dias.sort((a, b) => parseInt(a) - parseInt(b));
+                                                setForm({ ...form, diasSemana: dias.join(',') });
+                                            }}
+                                            style={{
+                                                width: 32, height: 32, borderRadius: '50%',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer',
+                                                transition: 'all 0.2s',
+                                                background: selected ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#f1f5f9',
+                                                color: selected ? 'white' : '#64748b'
+                                            }}
+                                        >
+                                            {dia.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: 6 }}>
+                                Seleccioná los días en que rige este horario.
+                            </p>
+                        </div>
                     </div>
                     <button onClick={handleGuardar} disabled={guardando}
                         style={{
@@ -3418,7 +4186,9 @@ function AdminConfigMarcacion() {
                                 <th style={thStyle}>Turno</th>
                                 <th style={{ ...thStyle, textAlign: 'center' }}>Hora Entrada</th>
                                 <th style={{ ...thStyle, textAlign: 'center' }}>Hora Salida</th>
+                                <th style={{ ...thStyle, textAlign: 'center', color: '#0ea5e9' }}>🕒 Hs. Laborales</th>
                                 <th style={{ ...thStyle, textAlign: 'center', color: '#7c3aed' }}>⏱️ Tolerancia</th>
+                                <th style={thStyle}>Días</th>
                                 <th style={{ ...thStyle, textAlign: 'center' }}>Acciones</th>
                             </tr>
                         </thead>
@@ -3435,6 +4205,9 @@ function AdminConfigMarcacion() {
                                     <td style={{ ...tdStyle, textAlign: 'center', fontFamily: 'monospace', fontWeight: 600, color: '#dc2626' }}>
                                         {t.horaSalida || '-'}
                                     </td>
+                                    <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 700, color: '#0ea5e9', fontSize: '0.8rem' }}>
+                                        {calcularHorasLaborales(t.horaEntrada, t.horaSalida)}
+                                    </td>
                                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                                         <span style={{
                                             display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -3445,6 +4218,25 @@ function AdminConfigMarcacion() {
                                         }}>
                                             {t.toleranciaMinutos != null ? t.toleranciaMinutos : 10} min
                                         </span>
+                                    </td>
+                                    <td style={{ ...tdStyle }}>
+                                        <div style={{ display: 'flex', gap: 3 }}>
+                                            {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((letra, i) => {
+                                                const diaId = (i + 1).toString();
+                                                const activo = t.diasSemana?.split(',').includes(diaId);
+                                                return (
+                                                    <span key={i} style={{
+                                                        width: 18, height: 18, borderRadius: '50%',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        fontSize: '0.65rem', fontWeight: 800,
+                                                        background: activo ? '#8b5cf6' : '#f1f5f9',
+                                                        color: activo ? 'white' : '#cbd5e1'
+                                                    }}>
+                                                        {letra}
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
                                     </td>
                                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                                         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
@@ -3471,20 +4263,19 @@ function AdminConfigMarcacion() {
 }
 
 function AdminDesarrollo() {
+    const { confirm, alert } = useModal();
     const [loading, setLoading] = useState(false);
 
     const handleResetMarcaciones = async () => {
-        if (!window.confirm("⚠️ ¿ESTÁS SEGURO?\n\nEsta acción eliminará ABSOLUTAMENTE TODAS las marcaciones registradas en el sistema (entradas y salidas de todos los trabajadores).\n\nEsta acción no se puede deshacer.")) {
-            return;
-        }
+        const ok = await confirm('⚠️ ¿ESTÁS SEGURO?', 'Esta acción eliminará ABSOLUTAMENTE TODAS las marcaciones registradas en el sistema (entradas y salidas de todos los trabajadores). Esta acción no se puede deshacer.');
+        if (!ok) return;
 
         setLoading(true);
         try {
             await adminService.resetMarcaciones();
-            alert("✅ Todas las marcaciones han sido eliminadas correctamente.");
+            alert('Éxito', 'Se han eliminado todas las marcaciones del sistema.', 'success');
         } catch (error) {
-            console.error("Error al resetear marcaciones:", error);
-            alert("❌ Error al eliminar marcaciones: " + (error.response?.data?.message || error.message));
+            alert('Error al resetear', error.response?.data?.error || error.message, 'error');
         } finally {
             setLoading(false);
         }
@@ -3516,14 +4307,15 @@ function AdminDesarrollo() {
                 <button
                     className="btn btn-warning"
                     onClick={async () => {
-                        if (!confirm("¿Resetear TU perfil para probar el onboarding de nuevo?")) return;
+                        const ok = await confirm("¿Resetear tu perfil?", "Esto borrará tus fotos y datos de onboarding para que puedas probar el flujo de bienvenida de nuevo.");
+                        if (!ok) return;
                         try {
                             const user = authService.getUsuarioActual();
                             await adminService.resetPerfil(user.id);
-                            alert("Perfil reseteado. La página se recargará.");
+                            alert("Éxito", "Tu perfil ha sido reseteado. La página se recargará.", "success");
                             window.location.reload();
                         } catch (e) {
-                            alert("Error: " + e.message);
+                            alert("Error", e.message, "error");
                         }
                     }}
                 >
@@ -3540,13 +4332,14 @@ function AdminDesarrollo() {
                 <button
                     className="btn btn-danger"
                     onClick={async () => {
-                        if (!confirm("⚠️ ¿ESTÁS SEGURO?\n\nEsta acción borrará las fotos y datos de onboarding de TODOS los usuarios del sistema.\n\nEs irreversible.")) return;
+                        const ok = await confirm("⚠️ ¿ESTÁS SEGURO?", "Esta acción borrará las fotos y datos de onboarding de TODOS los usuarios del sistema. Es irreversible.");
+                        if (!ok) return;
                         try {
                             setLoading(true);
                             await adminService.resetAllProfiles();
-                            alert("✅ Se han reseteado los perfiles de todos los usuarios.");
+                            alert("Éxito", "Se han reseteado los perfiles de todos los usuarios correctamente.", "success");
                         } catch (e) {
-                            alert("Error: " + e.message);
+                            alert("Error", e.message, "error");
                         } finally {
                             setLoading(false);
                         }
@@ -3574,6 +4367,7 @@ function AdminDesarrollo() {
 // ===========================================
 
 function AdminFeriados() {
+    const { confirm, alert } = useModal();
     const [feriados, setFeriados] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -3606,17 +4400,18 @@ function AdminFeriados() {
             setShowModal(false);
             cargarFeriados();
         } catch (err) {
-            alert('Error al guardar feriado: ' + (err.response?.data?.mensaje || err.message));
+            alert('Error', 'No se pudo guardar el feriado: ' + (err.response?.data?.mensaje || err.message), 'error');
         }
     };
 
     const handleDelete = async (id) => {
-        if (!confirm('¿Eliminar este feriado?')) return;
+        const ok = await confirm('Eliminar Feriado', '¿Estás seguro de que deseas eliminar este feriado del calendario?');
+        if (!ok) return;
         try {
             await gestionService.deleteFeriado(id);
             cargarFeriados();
         } catch (err) {
-            alert('Error al eliminar feriado');
+            alert('Error', 'No se pudo eliminar el feriado.', 'error');
         }
     };
 
@@ -3633,7 +4428,7 @@ function AdminFeriados() {
                 </button>
             </header>
 
-            <div className="filters-bar" style={{ marginBottom: '1.5rem', background: '#f8fafc', padding: '1rem', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+            <div className="filters-bar" style={{ marginBottom: '1.5rem', background: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
                 <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <label style={{ fontWeight: '700', color: '#475569' }}>Año Fiscal:</label>
                     <div className="premium-input-group" style={{ width: '150px' }}>
@@ -3760,10 +4555,10 @@ function FeriadoModal({ feriado, onClose, onSave }) {
                         </div>
                     </div>
 
-                    <div className="form-group" style={{ marginTop: '1rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                    <div className="form-group" style={{ marginTop: '1rem', background: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
                         <label className="toggle-switch" style={{ width: '100%', justifyContent: 'space-between' }}>
                             <div className="toggle-label">
-                                <span className="toggle-main-text" style={{ fontSize: '0.9rem' }}>Feriado Irrenunciable</span>
+                                <span className="toggle-main-text" style={{ fontSize: '0.8rem' }}>Feriado Irrenunciable</span>
                                 <span className="toggle-sub-text">Cierre obligatorio de sucursal</span>
                             </div>
                             <div style={{ position: 'relative' }}>
@@ -3800,6 +4595,7 @@ function FeriadoModal({ feriado, onClose, onSave }) {
 // ===========================================
 
 function AdminSucursales() {
+    const { confirm, alert } = useModal();
     const [sucursales, setSucursales] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -3838,12 +4634,13 @@ function AdminSucursales() {
     };
 
     const handleDelete = async (id) => {
-        if (!confirm('¿Está seguro de eliminar esta sucursal?')) return;
+        const ok = await confirm('Eliminar Sucursal', '¿Estás seguro de que deseas eliminar esta sucursal? Esta acción podría afectar a los usuarios asociados.');
+        if (!ok) return;
         try {
             await sucursalService.deleteSucursal(id);
             cargarSucursales();
         } catch (err) {
-            alert('Error al eliminar sucursal: ' + (err.response?.data?.error || err.message));
+            alert('Error', 'No se pudo eliminar la sucursal: ' + (err.response?.data?.error || err.message), 'error');
         }
     };
 
@@ -3933,6 +4730,7 @@ function AdminSucursales() {
 }
 
 function SucursalModal({ sucursal, onClose, onSave }) {
+    const { alert } = useModal();
     const [formData, setFormData] = useState({
         nombre: sucursal?.nombre || '',
         direccion: sucursal?.direccion || '',
@@ -3953,7 +4751,7 @@ function SucursalModal({ sucursal, onClose, onSave }) {
             }
             onSave();
         } catch (err) {
-            alert('Error al guardar sucursal');
+            alert('Error', 'Hubo un problema al guardar la sucursal.', 'error');
         } finally {
             setLoading(false);
         }
@@ -3977,7 +4775,7 @@ function SucursalModal({ sucursal, onClose, onSave }) {
             if (srcMatch) input = srcMatch[1];
         }
 
-        // 2. PRIORIDAD 1: Buscar patrón !3d (Lat) seguido de !4d (Long) 
+        // 2. PRIORIDAD 1: Buscar patrón !3d (Lat) seguido de !4d (Long)
         // Este patrón representa el PIN exacto en Google Maps (más preciso que !1d/!2d)
         const pinMatch = input.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
 
@@ -4050,7 +4848,7 @@ function SucursalModal({ sucursal, onClose, onSave }) {
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content side-modal animate-slideInRight" onClick={e => e.stopPropagation()}>
+            <div className="modal-content animate-slideUp" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2><ChevronRight size={20} /> {sucursal ? 'Editar' : 'Nueva'} localidad</h2>
                     <div className="modal-header-actions">
@@ -4165,6 +4963,19 @@ function AdminPreMarcaciones() {
         return d.toISOString().split('T')[0];
     });
     const [filtro, setFiltro] = useState('');
+    const [filtroSucursal, setFiltroSucursal] = useState('');
+    const [sucursales, setSucursales] = useState([]);
+
+    useEffect(() => {
+        cargarSucursales();
+    }, []);
+
+    const cargarSucursales = async () => {
+        try {
+            const data = await sucursalService.getSucursales();
+            setSucursales(data);
+        } catch (e) { console.error(e); }
+    };
 
     useEffect(() => {
         cargarDatos();
@@ -4204,6 +5015,8 @@ function AdminPreMarcaciones() {
                     preMarcacion: pm.fechaHoraDeteccion,
                     distanciaMetros: pm.distanciaMetros,
                     precisionGps: pm.precisionGps,
+                    latitud: pm.latitud,
+                    longitud: pm.longitud
                 };
             }
         });
@@ -4244,6 +5057,10 @@ function AdminPreMarcaciones() {
             );
         }
 
+        if (filtroSucursal) {
+            result = result.filter(r => r.sucursal === sucursales.find(s => s.id === parseInt(filtroSucursal))?.nombre);
+        }
+
         return result;
     };
 
@@ -4268,6 +5085,17 @@ function AdminPreMarcaciones() {
         const diff = getDiferencia(c.preMarcacion, c.marcacionOficial);
         return diff !== null && diff > 10;
     });
+
+    const isEarly = (pre, oficial) => {
+        if (!pre || !oficial) return false;
+        return new Date(pre) < new Date(oficial);
+    };
+
+    // Centro del mapa: primera detección o Paraguay
+    const detecciones = comparacion.filter(c => c.latitud && c.longitud);
+    const centro = detecciones.length > 0
+        ? [detecciones[0].latitud, detecciones[0].longitud]
+        : [-25.2637, -57.5759];
 
     return (
         <div className="admin-content">
@@ -4302,195 +5130,190 @@ function AdminPreMarcaciones() {
                     <div className="p-stat-header">
                         <div className="p-stat-icon pink"><AlertTriangle size={22} /></div>
                         <div className="p-stat-info">
-                            <span className="p-stat-label">Discrepancias (&gt;10min)</span>
+                            <span className="p-stat-label">Discrepancias (+10min)</span>
                             <span className="p-stat-value">{conDiscrepancia.length}</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Filtros */}
-            <div className="p-chart-card" style={{ marginBottom: '2rem' }}>
-                <div className="p-chart-header">
-                    <h3>Filtros</h3>
-                </div>
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', padding: '1rem' }}>
-                    <div>
-                        <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Desde</label>
+            {/* Filtros Premium */}
+            <div className="filters-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '1rem 1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '2rem', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '1rem', flex: 1, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', borderRadius: 12, padding: '0.5rem 1rem', border: '1px solid #e2e8f0' }}>
+                        <Calendar size={18} style={{ color: '#94a3b8', marginRight: 10 }} />
                         <input
                             type="date"
                             value={fechaInicio}
+                            className="input-naked"
+                            style={{ background: 'none', border: 'none', outline: 'none', fontSize: '0.85rem' }}
                             onChange={(e) => setFechaInicio(e.target.value)}
-                            style={{ padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
                         />
-                    </div>
-                    <div>
-                        <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Hasta</label>
+                        <span style={{ margin: '0 10px', color: '#cbd5e1' }}>hasta</span>
                         <input
                             type="date"
                             value={fechaFin}
+                            className="input-naked"
+                            style={{ background: 'none', border: 'none', outline: 'none', fontSize: '0.85rem' }}
                             onChange={(e) => setFechaFin(e.target.value)}
-                            style={{ padding: '0.5rem 0.75rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
                         />
                     </div>
-                    <div style={{ flex: 1, minWidth: 200 }}>
-                        <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Buscar colaborador</label>
-                        <div style={{ position: 'relative' }}>
-                            <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                            <input
-                                type="text"
-                                placeholder="Nombre del colaborador..."
-                                value={filtro}
-                                onChange={(e) => setFiltro(e.target.value)}
-                                style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
-                            />
+
+                    <div className="search-input" style={{ flex: '1', minWidth: '250px', display: 'flex', alignItems: 'center', background: '#f8fafc', borderRadius: 12, padding: '0.5rem 1rem', border: '1px solid #e2e8f0' }}>
+                        <Search size={18} style={{ color: '#94a3b8', marginRight: 10 }} />
+                        <input
+                            type="text"
+                            placeholder="Buscar colaborador..."
+                            value={filtro}
+                            style={{ background: 'none', border: 'none', outline: 'none', width: '100%', fontSize: '0.8rem' }}
+                            onChange={(e) => setFiltro(e.target.value)}
+                        />
+                    </div>
+
+                    <select
+                        className="input"
+                        style={{ borderRadius: 12, fontSize: '0.85rem', padding: '0.5rem 2rem 0.5rem 0.75rem' }}
+                        value={filtroSucursal}
+                        onChange={(e) => setFiltroSucursal(e.target.value)}
+                    >
+                        <option value="">Sucursal: Todas</option>
+                        {sucursales.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                </div>
+
+                <button onClick={cargarDatos} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                    Sincronizar
+                </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(400px, 1fr) 450px', gap: '1.5rem', alignItems: 'start' }}>
+                <div className="cards-selection" style={{ overflowY: 'auto', maxHeight: '1000px', paddingRight: '10px' }}>
+                    {loading ? (
+                        <div style={{ textAlign: 'center', padding: '5rem', background: 'white', borderRadius: 24, border: '1px solid #e2e8f0' }}>
+                            <Loader2 size={48} className="animate-spin" style={{ color: '#10b981', marginBottom: '1rem' }} />
+                            <p style={{ color: '#64748b', fontWeight: 600 }}>Procesando geofencing y comparativa...</p>
                         </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            {comparacion.map((item, idx) => {
+                                const diff = getDiferencia(item.preMarcacion, item.marcacionOficial);
+                                const isDiscrepant = diff !== null && diff > 10;
+
+                                return (
+                                    <div key={idx} className="p-chart-card animate-fadeIn" style={{
+                                        borderLeft: isDiscrepant ? '4px solid #f43f5e' : '4px solid #10b981',
+                                        transition: 'transform 0.2s',
+                                        cursor: 'default',
+                                        marginBottom: 0
+                                    }}>
+                                        <div style={{ padding: '1.25rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                                                <div>
+                                                    <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>{item.nombre}</h4>
+                                                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: '0.75rem', color: '#64748b' }}>
+                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Building2 size={12} /> {item.sucursal}</span>
+                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Calendar size={12} /> {item.fecha}</span>
+                                                    </div>
+                                                </div>
+                                                {isDiscrepant && (
+                                                    <div style={{ background: '#fff1f2', color: '#e11d48', padding: '4px 8px', borderRadius: 6, fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                        <AlertCircle size={12} /> DISCREPANCIA
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', background: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: 12 }}>
+                                                <div>
+                                                    <p style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Detección Geofence</p>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 0 2px rgba(59, 130, 246, 0.2)' }}></div>
+                                                        <span style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>{formatTime(item.preMarcacion)}</span>
+                                                    </div>
+                                                    {item.distanciaMetros && (
+                                                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: 4 }}>Distancia: {Math.round(item.distanciaMetros)}m</p>
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <p style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Marcación App</p>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: item.marcacionOficial ? '#10b981' : '#cbd5e1', boxShadow: item.marcacionOficial ? '0 0 0 2px rgba(16, 185, 129, 0.2)' : 'none' }}></div>
+                                                        <span style={{ fontSize: '1rem', fontWeight: 700, color: item.marcacionOficial ? '#1e293b' : '#94a3b8' }}>
+                                                            {item.marcacionOficial ? formatTime(item.marcacionOficial) : 'Sin marcar'}
+                                                        </span>
+                                                    </div>
+                                                    {item.minutosTarde > 0 && (
+                                                        <p style={{ fontSize: '0.65rem', color: '#f43f5e', marginTop: 4, fontWeight: 600 }}>+{item.minutosTarde} min tarde</p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {diff !== null && (
+                                                <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                        Intervalo detección-marcación:
+                                                    </span>
+                                                    <span style={{
+                                                        fontSize: '0.85rem',
+                                                        fontWeight: 800,
+                                                        color: isDiscrepant ? '#e11d48' : '#10b981',
+                                                        background: isDiscrepant ? '#fff1f2' : '#f0fdf4',
+                                                        padding: '2px 10px',
+                                                        borderRadius: 20
+                                                    }}>{diff} min</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {!loading && comparacion.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '5rem', background: 'white', borderRadius: 24, border: '1px solid #e2e8f0' }}>
+                            <Search size={48} style={{ color: '#cbd5e1', marginBottom: '1rem' }} />
+                            <p style={{ color: '#64748b', fontWeight: 600 }}>No se encontraron registros</p>
+                        </div>
+                    )}
+                </div>
+
+                <div className="map-view p-chart-card" style={{ position: 'sticky', top: '1.5rem', height: '600px', padding: 0, overflow: 'hidden' }}>
+                    <div className="p-chart-header" style={{ padding: '0.5rem 0.75rem' }}>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><MapIcon size={18} /> Visualización de Detecciones</h3>
                     </div>
-                    <div style={{ alignSelf: 'flex-end' }}>
-                        <button onClick={cargarDatos} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 1rem' }}>
-                            <RefreshCw size={16} /> Actualizar
-                        </button>
+                    <div style={{ height: 'calc(100% - 50px)', width: '100%' }}>
+                        <MapContainer
+                            center={centro}
+                            zoom={13}
+                            style={{ height: '100%', width: '100%' }}
+                        >
+                            <TileLayer
+                                url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+                                attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
+                            />
+                            {detecciones.map((det, i) => (
+                                <Marker
+                                    key={i}
+                                    position={[det.latitud, det.longitud]}
+                                    icon={L.divIcon({
+                                        className: 'custom-pre-marker',
+                                        html: `<div style="background: #10b981; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px rgba(16,185,129,0.5);"></div>`
+                                    })}
+                                >
+                                    <Popup>
+                                        <div style={{ padding: '5px' }}>
+                                            <strong style={{ display: 'block', marginBottom: 4 }}>{det.nombre}</strong>
+                                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Detección: {formatTime(det.preMarcacion)}</span>
+                                        </div>
+                                    </Popup>
+                                </Marker>
+                            ))}
+                        </MapContainer>
                     </div>
                 </div>
             </div>
-
-            {/* Tabla de comparación */}
-            <div className="p-chart-card">
-                <div className="p-chart-header">
-                    <h3>📊 Comparación: Llegada Real vs Marcación Oficial</h3>
-                </div>
-                {loading ? (
-                    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
-                        <Loader2 size={32} className="animate-spin" />
-                    </div>
-                ) : comparacion.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
-                        <Radar size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
-                        <p>Sin pre-marcaciones para el rango seleccionado</p>
-                    </div>
-                ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                        <table className="premium-table" style={{ width: '100%' }}>
-                            <thead>
-                                <tr>
-                                    <th>Colaborador</th>
-                                    <th>Fecha</th>
-                                    <th>Sucursal</th>
-                                    <th style={{ color: '#10b981' }}>📍 Llegada Real</th>
-                                    <th style={{ color: '#3b82f6' }}>⏱️ Marcación Oficial</th>
-                                    <th>Diferencia</th>
-                                    <th>Distancia</th>
-                                    <th>Estado</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {comparacion.map((item, i) => {
-                                    const diff = getDiferencia(item.preMarcacion, item.marcacionOficial);
-                                    const esDiscrepante = diff !== null && diff > 10;
-                                    const sinMarcacion = !item.marcacionOficial;
-
-                                    return (
-                                        <tr key={i} style={{
-                                            background: esDiscrepante ? 'rgba(239, 68, 68, 0.04)' : sinMarcacion ? 'rgba(245, 158, 11, 0.04)' : 'transparent'
-                                        }}>
-                                            <td style={{ fontWeight: 600 }}>{item.nombre}</td>
-                                            <td>{item.fecha}</td>
-                                            <td>{item.sucursal || '—'}</td>
-                                            <td>
-                                                <span style={{
-                                                    color: '#10b981',
-                                                    fontWeight: 700,
-                                                    fontSize: '0.95rem'
-                                                }}>
-                                                    {formatTime(item.preMarcacion)}
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <span style={{
-                                                    color: item.marcacionOficial ? '#3b82f6' : '#f59e0b',
-                                                    fontWeight: 700,
-                                                    fontSize: '0.95rem'
-                                                }}>
-                                                    {formatTime(item.marcacionOficial)}
-                                                </span>
-                                            </td>
-                                            <td>
-                                                {diff !== null ? (
-                                                    <span style={{
-                                                        padding: '2px 8px',
-                                                        borderRadius: 6,
-                                                        fontSize: '0.8rem',
-                                                        fontWeight: 700,
-                                                        background: esDiscrepante ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                                                        color: esDiscrepante ? '#ef4444' : '#10b981'
-                                                    }}>
-                                                        {diff > 0 ? `+${diff}min` : `${diff}min`}
-                                                    </span>
-                                                ) : (
-                                                    <span style={{ color: '#94a3b8' }}>—</span>
-                                                )}
-                                            </td>
-                                            <td>
-                                                {item.distanciaMetros != null ? (
-                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                                                        {Math.round(item.distanciaMetros)}m
-                                                    </span>
-                                                ) : '—'}
-                                            </td>
-                                            <td>
-                                                {esDiscrepante ? (
-                                                    <span style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: 4,
-                                                        padding: '3px 10px',
-                                                        borderRadius: 20,
-                                                        background: 'rgba(239, 68, 68, 0.1)',
-                                                        color: '#ef4444',
-                                                        fontWeight: 700,
-                                                        fontSize: '0.8rem'
-                                                    }}>
-                                                        <AlertTriangle size={14} /> Sospechoso
-                                                    </span>
-                                                ) : sinMarcacion ? (
-                                                    <span style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: 4,
-                                                        padding: '3px 10px',
-                                                        borderRadius: 20,
-                                                        background: 'rgba(245, 158, 11, 0.1)',
-                                                        color: '#f59e0b',
-                                                        fontWeight: 700,
-                                                        fontSize: '0.8rem'
-                                                    }}>
-                                                        <Clock size={14} /> Sin marcar
-                                                    </span>
-                                                ) : (
-                                                    <span style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: 4,
-                                                        padding: '3px 10px',
-                                                        borderRadius: 20,
-                                                        background: 'rgba(16, 185, 129, 0.1)',
-                                                        color: '#10b981',
-                                                        fontWeight: 700,
-                                                        fontSize: '0.8rem'
-                                                    }}>
-                                                        <CheckCircle2 size={14} /> OK
-                                                    </span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-        </div>
+        </div >
     );
 }
 
@@ -4502,6 +5325,18 @@ export default AdminPanel;
 // RASTREO GPS EN TIEMPO REAL - SOLO ADMIN
 // ===========================================
 
+// Helper: auto-fit map to route bounds
+function FitRouteBounds({ ruta }) {
+    const map = useMap();
+    useEffect(() => {
+        if (ruta.length > 1) {
+            const bounds = L.latLngBounds(ruta.map(r => [r.latitud, r.longitud]));
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+        }
+    }, [ruta.length, map]);
+    return null;
+}
+
 function AdminRastreo() {
     const [ubicaciones, setUbicaciones] = useState([]);
     const [usuarios, setUsuarios] = useState([]);
@@ -4509,6 +5344,8 @@ function AdminRastreo() {
     const [ruta, setRuta] = useState([]);
     const [fechaRuta, setFechaRuta] = useState(() => new Date().toISOString().split('T')[0]);
     const [loading, setLoading] = useState(true);
+    const [filtroUsuario, setFiltroUsuario] = useState('');
+    const [filtroSucursal, setFiltroSucursal] = useState('todas');
     const [autoRefresh, setAutoRefresh] = useState(true);
     const intervalRef = useRef(null);
 
@@ -4519,7 +5356,7 @@ function AdminRastreo() {
 
     useEffect(() => {
         if (autoRefresh) {
-            intervalRef.current = setInterval(cargarDatos, 30000); // cada 30 seg
+            intervalRef.current = setInterval(cargarDatos, 5000); // cada 5 seg - tiempo real
         }
         return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
     }, [autoRefresh]);
@@ -4559,6 +5396,77 @@ function AdminRastreo() {
         if (selectedUser) cargarRuta(selectedUser);
     }, [fechaRuta]);
 
+    // LIVE TRACKING: auto-refresh ruta del usuario seleccionado cada 10s
+    const liveIntervalRef = useRef(null);
+    const [liveTracking, setLiveTracking] = useState(true);
+    const [rutaSnapped, setRutaSnapped] = useState([]); // Ruta ajustada a calles
+
+    useEffect(() => {
+        if (liveIntervalRef.current) clearInterval(liveIntervalRef.current);
+        if (selectedUser && liveTracking && fechaRuta === new Date().toISOString().split('T')[0]) {
+            liveIntervalRef.current = setInterval(() => {
+                cargarRuta(selectedUser);
+            }, 5000); // cada 5 seg - tiempo real
+        }
+        return () => { if (liveIntervalRef.current) clearInterval(liveIntervalRef.current); };
+    }, [selectedUser, liveTracking, fechaRuta]);
+
+    // OSRM Road Matching: ajustar puntos GPS a calles reales
+    useEffect(() => {
+        if (ruta.length < 2) {
+            setRutaSnapped([]);
+            return;
+        }
+        obtenerRutaEnCalles(ruta);
+    }, [ruta]);
+
+    const obtenerRutaEnCalles = async (puntos) => {
+        try {
+            // Limitar a 100 puntos (límite de OSRM)
+            let puntosParaMatch = puntos;
+            if (puntos.length > 100) {
+                const step = Math.ceil(puntos.length / 99);
+                puntosParaMatch = puntos.filter((_, i) => i % step === 0 || i === puntos.length - 1);
+            }
+
+            // OSRM Match API: snap GPS traces to roads
+            // Formato: lon,lat;lon,lat;...
+            const coords = puntosParaMatch.map(p => `${p.longitud},${p.latitud}`).join(';');
+            const timestamps = puntosParaMatch.map(p => Math.floor(new Date(p.fechaHora).getTime() / 1000)).join(';');
+            const radiuses = puntosParaMatch.map(() => 50).join(';'); // 50m radio de búsqueda
+
+            const url = `https://router.project-osrm.org/match/v1/driving/${coords}?overview=full&geometries=geojson&timestamps=${timestamps}&radiuses=${radiuses}`;
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.code === 'Ok' && data.matchings && data.matchings.length > 0) {
+                // Combinar todas las geometrías de los matchings
+                const allCoords = [];
+                data.matchings.forEach(match => {
+                    match.geometry.coordinates.forEach(coord => {
+                        allCoords.push([coord[1], coord[0]]); // GeoJSON usa [lng, lat], Leaflet usa [lat, lng]
+                    });
+                });
+                setRutaSnapped(allCoords);
+            } else {
+                // Fallback: usar OSRM Route si match falla
+                const routeUrl = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+                const routeResp = await fetch(routeUrl);
+                const routeData = await routeResp.json();
+
+                if (routeData.code === 'Ok' && routeData.routes && routeData.routes.length > 0) {
+                    const routeCoords = routeData.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    setRutaSnapped(routeCoords);
+                } else {
+                    setRutaSnapped([]); // Fallback a línea recta
+                }
+            }
+        } catch (e) {
+            setRutaSnapped([]); // Si falla OSRM, usar línea recta como fallback
+        }
+    };
+
     const formatTime = (iso) => {
         if (!iso) return '';
         return new Date(iso).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
@@ -4581,7 +5489,12 @@ function AdminRastreo() {
         <div className="admin-content">
             <header className="content-header">
                 <div className="header-title">
-                    <h1><Navigation size={28} style={{ marginRight: 10, color: '#3b82f6', verticalAlign: 'middle' }} /> Rastreo GPS en Tiempo Real</h1>
+                    <h1 style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: '1.4rem', fontWeight: 800 }}>
+                        <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: 10, borderRadius: 12, display: 'flex' }}>
+                            <Navigation size={24} style={{ color: '#3b82f6' }} />
+                        </div>
+                        Rastreo GPS Pro
+                    </h1>
                     <p>Ubicación de colaboradores para seguridad — Actualiza cada 30s</p>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -4636,8 +5549,8 @@ function AdminRastreo() {
                                 style={{ height: '100%', width: '100%' }}
                             >
                                 <TileLayer
-                                    attribution='&copy; OpenStreetMap'
-                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                    url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+                                    attribution='&copy; <a href="https://www.google.com/maps">Google Maps</a>'
                                 />
 
                                 {/* Marcadores de ubicación actual */}
@@ -4676,42 +5589,245 @@ function AdminRastreo() {
                                                 <span style={{ color: '#3b82f6', fontWeight: 600 }}>
                                                     ⏰ {formatTime(ub.fechaHora)} ({tiempoDesde(ub.fechaHora)})
                                                 </span>
-                                                {ub.bateria != null && (
+                                                {ub.bateria != null && ub.bateria < 100 && (
                                                     <><br /><span>🔋 Batería: {ub.bateria}%</span></>
                                                 )}
                                                 {ub.precisionGps != null && (
-                                                    <><br /><span>🎯 Precisión: {Math.round(ub.precisionGps)}m</span></>
+                                                    <><br /><span style={{ color: ub.precisionGps <= 50 ? '#16a34a' : ub.precisionGps <= 500 ? '#f59e0b' : '#dc2626' }}>
+                                                        🎯 Precisión: {Math.round(ub.precisionGps)}m {ub.precisionGps > 500 ? '⚠️ Baja' : ub.precisionGps <= 50 ? '✅ Alta' : ''}
+                                                    </span></>
                                                 )}
                                             </div>
                                         </Popup>
                                     </Marker>
                                 ))}
 
-                                {/* Línea de ruta si hay seleccionado */}
+                                {/* Línea de ruta + puntos si hay seleccionado */}
                                 {ruta.length > 1 && (() => {
                                     const positions = ruta.map(r => [r.latitud, r.longitud]);
+                                    const routePath = rutaSnapped.length > 0 ? rutaSnapped : positions;
                                     return (
                                         <>
-                                            {positions.map((pos, idx) => (
-                                                <Circle
-                                                    key={`ruta-${idx}`}
-                                                    center={pos}
-                                                    radius={5}
-                                                    pathOptions={{
-                                                        color: idx === 0 ? '#10b981' : idx === positions.length - 1 ? '#ef4444' : '#3b82f6',
-                                                        fillColor: idx === 0 ? '#10b981' : idx === positions.length - 1 ? '#ef4444' : '#3b82f6',
-                                                        fillOpacity: 0.8
-                                                    }}
-                                                >
-                                                    <Popup>
-                                                        {idx === 0 ? '🟢 Inicio' : idx === positions.length - 1 ? '🔴 Último' : `Punto ${idx}`}
-                                                        <br />{formatTime(ruta[idx].fechaHora)}
-                                                    </Popup>
-                                                </Circle>
-                                            ))}
+                                            {/* Polyline del recorrido - sigue calles si OSRM disponible */}
+                                            <Polyline
+                                                positions={routePath}
+                                                pathOptions={{
+                                                    color: '#3b82f6',
+                                                    weight: 5,
+                                                    opacity: 0.85,
+                                                    lineCap: 'round',
+                                                    lineJoin: 'round'
+                                                }}
+                                            />
+                                            {/* Línea sombra para profundidad */}
+                                            <Polyline
+                                                positions={routePath}
+                                                pathOptions={{
+                                                    color: '#1e40af',
+                                                    weight: 10,
+                                                    opacity: 0.12,
+                                                }}
+                                            />
+
+                                            {/* Punto de INICIO (verde grande) */}
+                                            <Circle
+                                                center={positions[0]}
+                                                radius={12}
+                                                pathOptions={{
+                                                    color: '#059669',
+                                                    fillColor: '#10b981',
+                                                    fillOpacity: 1,
+                                                    weight: 3
+                                                }}
+                                            >
+                                                <Popup>
+                                                    <strong>🟢 INICIO del recorrido</strong><br />
+                                                    {formatTime(ruta[0].fechaHora)}
+                                                </Popup>
+                                            </Circle>
+
+                                            {/* Punto FINAL (rojo grande) */}
+                                            <Circle
+                                                center={positions[positions.length - 1]}
+                                                radius={12}
+                                                pathOptions={{
+                                                    color: '#dc2626',
+                                                    fillColor: '#ef4444',
+                                                    fillOpacity: 1,
+                                                    weight: 3
+                                                }}
+                                            >
+                                                <Popup>
+                                                    <strong>🔴 ÚLTIMO registro</strong><br />
+                                                    {formatTime(ruta[ruta.length - 1].fechaHora)}
+                                                </Popup>
+                                            </Circle>
+
+                                            {/* Puntos de ruta + Detección de PARADAS (>3 min) */}
+                                            {(() => {
+                                                // Detectar paradas: puntos donde la persona estuvo >3 min en un radio de 30m
+                                                const calcDist = (lat1, lon1, lat2, lon2) => {
+                                                    const R = 6371000;
+                                                    const dLat = (lat2 - lat1) * Math.PI / 180;
+                                                    const dLon = (lon2 - lon1) * Math.PI / 180;
+                                                    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+                                                    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                                                };
+
+                                                const paradas = [];
+                                                const puntosMovimiento = [];
+                                                let i = 1;
+
+                                                while (i < ruta.length - 1) {
+                                                    let j = i;
+                                                    // Agrupar puntos consecutivos que estén dentro de 30m
+                                                    while (j < ruta.length - 1 && calcDist(ruta[i].latitud, ruta[i].longitud, ruta[j + 1].latitud, ruta[j + 1].longitud) < 30) {
+                                                        j++;
+                                                    }
+
+                                                    const inicio = new Date(ruta[i].fechaHora);
+                                                    const fin = new Date(ruta[j].fechaHora);
+                                                    const duracionMin = (fin - inicio) / 60000;
+
+                                                    if (duracionMin >= 3 && j > i) {
+                                                        // Es una parada (>3 min en el mismo lugar)
+                                                        const avgLat = ruta.slice(i, j + 1).reduce((s, r) => s + r.latitud, 0) / (j - i + 1);
+                                                        const avgLng = ruta.slice(i, j + 1).reduce((s, r) => s + r.longitud, 0) / (j - i + 1);
+                                                        paradas.push({
+                                                            lat: avgLat,
+                                                            lng: avgLng,
+                                                            inicio: ruta[i].fechaHora,
+                                                            fin: ruta[j].fechaHora,
+                                                            duracionMin: Math.round(duracionMin),
+                                                            puntos: j - i + 1
+                                                        });
+                                                        i = j + 1;
+                                                    } else {
+                                                        // Es un punto de movimiento
+                                                        puntosMovimiento.push({ pos: [ruta[i].latitud, ruta[i].longitud], idx: i });
+                                                        i++;
+                                                    }
+                                                }
+
+                                                const formatDuracion = (min) => {
+                                                    if (min < 60) return `${min} min`;
+                                                    const h = Math.floor(min / 60);
+                                                    const m = min % 60;
+                                                    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+                                                };
+
+                                                return (
+                                                    <>
+                                                        {/* Puntos de movimiento (azul pequeño) */}
+                                                        {puntosMovimiento.map(({ pos, idx }) => (
+                                                            <Circle
+                                                                key={`wp-${idx}`}
+                                                                center={pos}
+                                                                radius={4}
+                                                                pathOptions={{
+                                                                    color: '#3b82f6',
+                                                                    fillColor: '#93c5fd',
+                                                                    fillOpacity: 0.7,
+                                                                    weight: 1.5
+                                                                }}
+                                                            >
+                                                                <Popup>
+                                                                    📍 Punto {idx}<br />
+                                                                    {formatTime(ruta[idx].fechaHora)}
+                                                                    {ruta[idx].bateria != null && <><br />🔋 {ruta[idx].bateria}%</>}
+                                                                </Popup>
+                                                            </Circle>
+                                                        ))}
+
+                                                        {/* PARADAS (naranja/amarillo grande con tiempo) */}
+                                                        {paradas.map((parada, idx) => (
+                                                            <React.Fragment key={`stop-${idx}`}>
+                                                                {/* Radio de la parada */}
+                                                                <Circle
+                                                                    center={[parada.lat, parada.lng]}
+                                                                    radius={25}
+                                                                    pathOptions={{
+                                                                        color: '#f59e0b',
+                                                                        fillColor: '#fbbf24',
+                                                                        fillOpacity: 0.15,
+                                                                        weight: 2,
+                                                                        dashArray: '5,5'
+                                                                    }}
+                                                                />
+                                                                {/* Marcador de parada */}
+                                                                <Marker
+                                                                    position={[parada.lat, parada.lng]}
+                                                                    icon={L.divIcon({
+                                                                        html: `<div style="
+                                                                            display: flex; align-items: center; justify-content: center;
+                                                                            width: 32px; height: 32px;
+                                                                            background: linear-gradient(135deg, #f59e0b, #d97706);
+                                                                            border-radius: 50%;
+                                                                            border: 3px solid white;
+                                                                            box-shadow: 0 2px 8px rgba(245,158,11,0.5);
+                                                                            color: white; font-size: 14px; font-weight: bold;
+                                                                        ">⏸</div>
+                                                                        <div style="
+                                                                            position: absolute; top: -8px; right: -12px;
+                                                                            background: #ef4444; color: white;
+                                                                            font-size: 9px; font-weight: 700;
+                                                                            padding: 1px 4px; border-radius: 8px;
+                                                                            white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+                                                                        ">${formatDuracion(parada.duracionMin)}</div>`,
+                                                                        className: '',
+                                                                        iconSize: [32, 32],
+                                                                        iconAnchor: [16, 16]
+                                                                    })}
+                                                                >
+                                                                    <Popup>
+                                                                        <div style={{ minWidth: 160 }}>
+                                                                            <strong style={{ color: '#d97706' }}>⏸ Parada #{idx + 1}</strong><br />
+                                                                            <span style={{ fontSize: '0.85rem' }}>
+                                                                                ⏱ <strong>{formatDuracion(parada.duracionMin)}</strong><br />
+                                                                                🕐 {formatTime(parada.inicio)} → {formatTime(parada.fin)}<br />
+                                                                                📊 {parada.puntos} registros en esta zona
+                                                                            </span>
+                                                                        </div>
+                                                                    </Popup>
+                                                                </Marker>
+                                                            </React.Fragment>
+                                                        ))}
+                                                    </>
+                                                );
+                                            })()}
+
+                                            {/* Marcador de posición actual (último punto) con pulso */}
+                                            <Marker
+                                                position={positions[positions.length - 1]}
+                                                icon={L.divIcon({
+                                                    html: `<div style="
+                                                        width: 20px; height: 20px;
+                                                        background: #ef4444;
+                                                        border-radius: 50%;
+                                                        border: 3px solid white;
+                                                        box-shadow: 0 0 0 4px rgba(239,68,68,0.3), 0 0 15px rgba(239,68,68,0.4);
+                                                        animation: pulse-live 2s infinite;
+                                                    "></div>
+                                                    <style>@keyframes pulse-live { 0%, 100% { box-shadow: 0 0 0 4px rgba(239,68,68,0.3); } 50% { box-shadow: 0 0 0 10px rgba(239,68,68,0.1); } }</style>`,
+                                                    className: '',
+                                                    iconSize: [20, 20],
+                                                    iconAnchor: [10, 10]
+                                                })}
+                                            >
+                                                <Popup>
+                                                    <strong>📍 Posición actual</strong><br />
+                                                    {formatTime(ruta[ruta.length - 1].fechaHora)}<br />
+                                                    <span style={{ color: '#64748b', fontSize: '0.8rem' }}>
+                                                        {tiempoDesde(ruta[ruta.length - 1].fechaHora)}
+                                                    </span>
+                                                </Popup>
+                                            </Marker>
                                         </>
                                     );
                                 })()}
+
+                                {/* Auto-fit mapa a la ruta seleccionada */}
+                                {ruta.length > 1 && <FitRouteBounds ruta={ruta} />}
                             </MapContainer>
                         )}
                     </div>
@@ -4721,43 +5837,227 @@ function AdminRastreo() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {/* Historial de ruta */}
                     <div className="p-chart-card">
-                        <div className="p-chart-header">
-                            <h3>🛤️ Historial de Ruta</h3>
+                        <div className="p-chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3>🚩 Historial de Ruta</h3>
+                            {selectedUser && fechaRuta === new Date().toISOString().split('T')[0] && (
+                                <label style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                                    color: liveTracking ? '#ef4444' : '#94a3b8',
+                                    background: liveTracking ? 'rgba(239,68,68,0.08)' : '#f1f5f9',
+                                    padding: '4px 10px', borderRadius: 20
+                                }}>
+                                    <span style={{
+                                        width: 8, height: 8, borderRadius: '50%',
+                                        background: liveTracking ? '#ef4444' : '#94a3b8',
+                                        animation: liveTracking ? 'pulse-live 1.5s infinite' : 'none'
+                                    }}></span>
+                                    <input
+                                        type="checkbox" checked={liveTracking}
+                                        onChange={(e) => setLiveTracking(e.target.checked)}
+                                        style={{ display: 'none' }}
+                                    />
+                                    {liveTracking ? 'LIVE' : 'OFF'}
+                                </label>
+                            )}
                         </div>
-                        <div style={{ padding: '1rem' }}>
-                            <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Colaborador</label>
-                            <select
-                                value={selectedUser || ''}
-                                onChange={(e) => handleSelectUser(e.target.value ? Number(e.target.value) : null)}
-                                style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem', marginBottom: '0.75rem' }}
-                            >
-                                <option value="">Seleccionar...</option>
-                                {usuarios.map(u => (
-                                    <option key={u.id} value={u.id}>{u.nombreCompleto}</option>
-                                ))}
-                            </select>
+                        <div style={{ padding: '1.25rem' }}>
+                            {/* Filtro por sucursal */}
+                            <div style={{ marginBottom: 10 }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>Sucursal</label>
+                                <select
+                                    className="input"
+                                    style={{ width: '100%', borderRadius: 10, cursor: 'pointer', fontSize: '0.85rem' }}
+                                    value={filtroSucursal}
+                                    onChange={(e) => setFiltroSucursal(e.target.value)}
+                                >
+                                    <option value="todas">🏢 Todas las sucursales ({usuarios.length})</option>
+                                    {[...new Set(usuarios.map(u => u.sucursal?.nombre || 'Sin sucursal'))]
+                                        .sort()
+                                        .map(suc => (
+                                            <option key={suc} value={suc}>
+                                                📍 {suc} ({usuarios.filter(u => (u.sucursal?.nombre || 'Sin sucursal') === suc).length})
+                                            </option>
+                                        ))}
+                                </select>
+                            </div>
 
-                            <label style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: 4, display: 'block' }}>Fecha</label>
-                            <input
-                                type="date"
-                                value={fechaRuta}
-                                onChange={(e) => setFechaRuta(e.target.value)}
-                                style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
-                            />
+                            {/* Búsqueda de persona */}
+                            <div style={{ position: 'relative', marginBottom: 10 }}>
+                                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar colaborador..."
+                                    className="input"
+                                    style={{ paddingLeft: 32, borderRadius: 10, fontSize: '0.82rem', width: '100%' }}
+                                    value={filtroUsuario}
+                                    onChange={(e) => {
+                                        const valor = e.target.value.toLowerCase();
+                                        setFiltroUsuario(valor);
+                                        if (valor.length >= 2) {
+                                            const filtrados = usuarios.filter(u => {
+                                                const sucNombre = u.sucursal?.nombre || 'Sin sucursal';
+                                                if (filtroSucursal !== 'todas' && sucNombre !== filtroSucursal) return false;
+                                                const texto = `${u.nombreCompleto} ${u.username} ${u.ci || ''}`.toLowerCase();
+                                                return texto.includes(valor);
+                                            });
+                                            if (filtrados.length === 1) {
+                                                handleSelectUser(filtrados[0].id);
+                                            }
+                                        }
+                                    }}
+                                />
+                            </div>
 
-                            {ruta.length > 0 && (
-                                <div style={{ marginTop: '1rem', fontSize: '0.85rem', color: '#475569' }}>
-                                    <p><strong>{ruta.length}</strong> puntos registrados</p>
-                                    <p>🟢 Inicio: <strong>{formatTime(ruta[0]?.fechaHora)}</strong></p>
-                                    <p>🔴 Último: <strong>{formatTime(ruta[ruta.length - 1]?.fechaHora)}</strong></p>
+                            {/* Selector de colaborador agrupado por sucursal */}
+                            <div style={{ marginBottom: 12 }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>Colaborador</label>
+                                <select
+                                    id="user-select-tracking"
+                                    className="input"
+                                    style={{ width: '100%', borderRadius: 10, cursor: 'pointer', fontSize: '0.85rem' }}
+                                    onChange={(e) => handleSelectUser(e.target.value ? Number(e.target.value) : null)}
+                                    value={selectedUser || ''}
+                                >
+                                    <option value="">— Seleccionar colaborador —</option>
+                                    {(() => {
+                                        const filtrados = usuarios
+                                            .filter(u => {
+                                                const sucNombre = u.sucursal?.nombre || 'Sin sucursal';
+                                                if (filtroSucursal !== 'todas' && sucNombre !== filtroSucursal) return false;
+                                                if (filtroUsuario) {
+                                                    const texto = `${u.nombreCompleto} ${u.username} ${u.ci || ''}`.toLowerCase();
+                                                    if (!texto.includes(filtroUsuario)) return false;
+                                                }
+                                                return true;
+                                            })
+                                            .sort((a, b) => a.nombreCompleto.localeCompare(b.nombreCompleto));
+
+                                        // Agrupar por sucursal
+                                        const grupos = {};
+                                        filtrados.forEach(u => {
+                                            const suc = u.sucursal?.nombre || 'Sin sucursal';
+                                            if (!grupos[suc]) grupos[suc] = [];
+                                            grupos[suc].push(u);
+                                        });
+
+                                        return Object.keys(grupos).sort().map(suc => (
+                                            <optgroup key={suc} label={`📍 ${suc} (${grupos[suc].length})`}>
+                                                {grupos[suc].map(u => (
+                                                    <option key={u.id} value={u.id}>
+                                                        {u.nombreCompleto}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        ));
+                                    })()}
+                                </select>
+                            </div>
+
+                            {/* Fecha */}
+                            <div style={{ marginBottom: 16 }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>Fecha</label>
+                                <input
+                                    type="date"
+                                    className="input"
+                                    style={{ width: '100%', borderRadius: 10, fontSize: '0.85rem' }}
+                                    value={fechaRuta}
+                                    onChange={(e) => setFechaRuta(e.target.value)}
+                                />
+                            </div>
+
+                            {selectedUser && ruta.length > 0 && (() => {
+                                // Calcular distancia total
+                                const calcDist = (lat1, lon1, lat2, lon2) => {
+                                    const R = 6371000;
+                                    const dLat = (lat2 - lat1) * Math.PI / 180;
+                                    const dLon = (lon2 - lon1) * Math.PI / 180;
+                                    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+                                    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                                };
+                                let totalDist = 0;
+                                for (let i = 1; i < ruta.length; i++) {
+                                    totalDist += calcDist(ruta[i - 1].latitud, ruta[i - 1].longitud, ruta[i].latitud, ruta[i].longitud);
+                                }
+                                const distKm = (totalDist / 1000).toFixed(2);
+                                const inicio = new Date(ruta[0].fechaHora);
+                                const fin = new Date(ruta[ruta.length - 1].fechaHora);
+                                const duracionMin = Math.round((fin - inicio) / 60000);
+                                const horas = Math.floor(duracionMin / 60);
+                                const mins = duracionMin % 60;
+                                const duracionStr = horas > 0 ? `${horas}h ${mins}min` : `${mins}min`;
+
+                                return (
+                                    <div style={{ marginTop: '1.5rem', padding: '0.5rem 0.75rem', background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                                        <h4 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <TrendingUp size={16} color="#3b82f6" /> Resumen del Día
+                                        </h4>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.8rem' }}>
+                                            <p style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#64748b' }}>Registros:</span>
+                                                <strong style={{ color: '#1e293b' }}>{ruta.length} puntos</strong>
+                                            </p>
+                                            <p style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#64748b' }}>Inicio:</span>
+                                                <strong style={{ color: '#10b981' }}>🟢 {formatTime(ruta[0]?.fechaHora)}</strong>
+                                            </p>
+                                            <p style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: '#64748b' }}>Último:</span>
+                                                <strong style={{ color: '#ef4444' }}>🔴 {formatTime(ruta[ruta.length - 1]?.fechaHora)}</strong>
+                                            </p>
+                                            <div style={{ borderTop: '1px dashed #cbd5e1', margin: '4px 0', paddingTop: 8 }}>
+                                                <p style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#64748b' }}>📏 Distancia total:</span>
+                                                    <strong style={{ color: '#3b82f6' }}>{distKm} km</strong>
+                                                </p>
+                                                <p style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#64748b' }}>⏱ Duración:</span>
+                                                    <strong style={{ color: '#6366f1' }}>{duracionStr}</strong>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {selectedUser && ruta.length === 0 && (
+                                <div style={{ marginTop: '1.5rem', textAlign: 'center', padding: '2rem 1rem', background: '#fff1f2', borderRadius: 12, border: '1px dashed #fda4af' }}>
+                                    <UserX size={32} color="#f43f5e" style={{ marginBottom: 8, opacity: 0.6 }} />
+                                    <p style={{ color: '#9f1239', fontSize: '0.85rem', fontWeight: 600 }}>
+                                        Sin movimientos registrados
+                                    </p>
+                                    <p style={{ color: '#be123c', fontSize: '0.75rem', marginTop: 4 }}>
+                                        No se detectó actividad GPS para este colaborador en la fecha seleccionada.
+                                    </p>
                                 </div>
                             )}
 
-                            {selectedUser && ruta.length === 0 && (
-                                <p style={{ marginTop: '1rem', color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center' }}>
-                                    Sin registros para esta fecha
-                                </p>
-                            )}
+                            {/* LEYENDA DEL MAPA */}
+                            <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f0f9ff', borderRadius: 10, border: '1px solid #bae6fd' }}>
+                                <h4 style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0369a1', marginBottom: 8 }}>📖 Leyenda del Mapa</h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: '0.72rem', color: '#334155' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#10b981', border: '2px solid #059669', flexShrink: 0 }}></span>
+                                        <span>Inicio del recorrido</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ width: 16, height: 4, background: '#3b82f6', borderRadius: 2, flexShrink: 0 }}></span>
+                                        <span>Ruta por calles (estimada)</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#93c5fd', border: '1.5px solid #3b82f6', flexShrink: 0 }}></span>
+                                        <span>Punto de movimiento</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'linear-gradient(135deg, #f59e0b, #d97706)', border: '2px solid white', flexShrink: 0, boxShadow: '0 0 0 1px #f59e0b' }}></span>
+                                        <span><strong>Parada</strong> de 3+ min</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#ef4444', border: '2px solid white', flexShrink: 0, boxShadow: '0 0 0 1px #ef4444' }}></span>
+                                        <span>Posición actual / última</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -4825,6 +6125,7 @@ function AdminRastreo() {
 // ===========================================
 
 function AdminJustificaciones() {
+    const { alert } = useModal();
     const [justificaciones, setJustificaciones] = useState([]);
     const [pendientes, setPendientes] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -4851,9 +6152,10 @@ function AdminJustificaciones() {
         try {
             await justificacionService.revisar(id, decision, comentario);
             setModalRevisar(null);
-            setComentario('');
+            comentario && setComentario('');
             cargarDatos();
-        } catch (e) { alert('Error: ' + e.message); }
+            alert('Revisión Completada', 'La justificación ha sido procesada correctamente.', 'success');
+        } catch (e) { alert('Error', e.message, 'error'); }
     };
 
     const lista = vista === 'pendientes' ? pendientes : justificaciones;
@@ -4967,8 +6269,8 @@ function AdminJustificaciones() {
                     onClick={() => setModalRevisar(null)}>
                     <div style={{ background: 'white', borderRadius: 20, padding: '2rem', maxWidth: 480, width: '90%', boxShadow: '0 25px 60px rgba(0,0,0,0.3)' }}
                         onClick={e => e.stopPropagation()}>
-                        <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem' }}>📋 Revisar Justificación</h3>
-                        <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: 12, marginBottom: '1rem', fontSize: '0.9rem' }}>
+                        <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem' }}>📋 Revisar Justificación</h3>
+                        <div style={{ background: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: 12, marginBottom: '1rem', fontSize: '0.8rem' }}>
                             <p><strong>Colaborador:</strong> {modalRevisar.nombreUsuario}</p>
                             <p><strong>Fecha:</strong> {modalRevisar.fecha}</p>
                             <p><strong>Tipo:</strong> {modalRevisar.tipo}</p>
@@ -4982,16 +6284,16 @@ function AdminJustificaciones() {
                             value={comentario}
                             onChange={(e) => setComentario(e.target.value)}
                             placeholder="Agregar comentario..."
-                            style={{ width: '100%', padding: '0.75rem', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: '0.9rem', minHeight: 80, resize: 'vertical', marginBottom: '1rem' }}
+                            style={{ width: '100%', padding: '0.75rem', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: '0.8rem', minHeight: 80, resize: 'vertical', marginBottom: '1rem' }}
                         />
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
                             <button
                                 onClick={() => handleRevisar(modalRevisar.id, 'APROBAR')}
-                                style={{ flex: 1, padding: '0.75rem', borderRadius: 12, border: 'none', background: '#10b981', color: 'white', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}
+                                style={{ flex: 1, padding: '0.75rem', borderRadius: 12, border: 'none', background: '#10b981', color: 'white', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}
                             >✅ Aprobar</button>
                             <button
                                 onClick={() => handleRevisar(modalRevisar.id, 'RECHAZAR')}
-                                style={{ flex: 1, padding: '0.75rem', borderRadius: 12, border: 'none', background: '#ef4444', color: 'white', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}
+                                style={{ flex: 1, padding: '0.75rem', borderRadius: 12, border: 'none', background: '#ef4444', color: 'white', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}
                             >❌ Rechazar</button>
                         </div>
                         <button
@@ -5083,16 +6385,16 @@ function AdminAuditoria() {
 
             {/* Filtros */}
             <div className="p-chart-card" style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', gap: '1rem', padding: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '1rem', padding: '0.5rem 0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div>
                         <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Desde</label>
                         <input type="date" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)}
-                            style={{ padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
+                            style={{ padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.8rem' }} />
                     </div>
                     <div>
                         <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Hasta</label>
                         <input type="date" value={fechaFin} onChange={e => setFechaFin(e.target.value)}
-                            style={{ padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
+                            style={{ padding: '0.5rem', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.8rem' }} />
                     </div>
                     <button onClick={cargarDatos} className="btn-premium" style={{ padding: '0.5rem 1.5rem', display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Search size={16} /> Buscar

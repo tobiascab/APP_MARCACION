@@ -83,4 +83,14 @@ public interface MarcacionRepository extends JpaRepository<Marcacion, Long> {
          */
         List<Marcacion> findByUsuario_Sucursal_IdAndFechaHoraBetweenOrderByFechaHoraDesc(
                         Long sucursalId, LocalDateTime inicio, LocalDateTime fin);
+
+        /**
+         * Busca marcaciones de HOY con el mismo fingerprint pero de OTRO usuario.
+         */
+        @Query("SELECT m FROM Marcacion m WHERE m.deviceFingerprint = :fingerprint " +
+                        "AND m.usuario.id <> :usuarioId " +
+                        "AND DATE(m.fechaHora) = CURRENT_DATE ORDER BY m.fechaHora DESC")
+        List<Marcacion> findByDeviceFingerprintAndNotUsuarioHoy(
+                        @Param("fingerprint") String fingerprint,
+                        @Param("usuarioId") Long usuarioId);
 }

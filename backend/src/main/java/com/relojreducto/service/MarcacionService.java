@@ -7,6 +7,8 @@ import com.relojreducto.entity.Sucursal;
 import com.relojreducto.entity.Usuario;
 import com.relojreducto.repository.MarcacionRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +29,8 @@ import java.util.stream.Collectors;
 @SuppressWarnings("null")
 public class MarcacionService {
 
+    private static final Logger log = LoggerFactory.getLogger(MarcacionService.class);
+
     private final MarcacionRepository marcacionRepository;
     private final UsuarioService usuarioService;
     private final NotificationService notificationService;
@@ -40,14 +44,12 @@ public class MarcacionService {
     }
 
     // ===============================
-    // CONFIGURACIÓN DE HORARIOS
+    // CONFIGURACIÓN DE REGLAS BASES
     // ===============================
-    private static final LocalTime HORA_ENTRADA = LocalTime.of(7, 10); // 7:10 AM
-    private static final LocalTime HORA_SALIDA = LocalTime.of(17, 0); // 5:00 PM
-    private static final int MINUTOS_JORNADA = 590; // ~9.8 horas (de 7:10 a 17:00)
-    private static final int DIAS_LABORALES_MES = 26; // Días laborales promedio
-    private static final int MINUTOS_COOLDOWN = 240; // 4 horas mínimo entre marcaciones del mismo tipo
-    private static final int MAX_MARCACIONES_DIA = 2; // Máximo 2 marcaciones por día (1 entrada + 1 salida)
+    private static final int MIN_MINUTOS_JORNADA = 480; // 8 horas por defecto si no hay turno
+    private static final int DIAS_LABORALES_MES = 26; 
+    private static final int MINUTOS_COOLDOWN = 120; // Reducido a 2 horas mínimo entre marcaciones
+    private static final int MAX_MARCACIONES_DIA = 2;
 
     /**
      * Crea una nueva marcación para el usuario actual.
@@ -122,21 +124,13 @@ public class MarcacionService {
             }
         }
 
-        // Determinar el tipo de marcación
+        // Determinar el tipo de marcación (Entrada o Salida)
         Marcacion.TipoMarcacion tipo = determinarTipoMarcacion(usuarioId);
 
-        // Validar horario de salida
-        if (tipo == Marcacion.TipoMarcacion.SALIDA) {
-            if (horaActual.isBefore(HORA_SALIDA)) {
-                long minutosParaSalida = ChronoUnit.MINUTES.between(horaActual, HORA_SALIDA);
-                long horas = minutosParaSalida / 60;
-                long mins = minutosParaSalida % 60;
-                throw new RuntimeException(
-                        "Aún no puedes marcar salida. Faltan " + horas + "h " + mins + "min para tu horario de salida ("
-                                +
-                                HORA_SALIDA + ").");
-            }
-        }
+        // Turno del usuario
+        com.relojreducto.entity.Turno turno = usuario.getTurno();
+        LocalTime shiftEntrada = (turno != null) ? turno.getHoraEntrada() : LocalTime.of(8, 0);
+        LocalTime shiftSalida = (turno != null) ? turno.getHoraSalida() : LocalTime.of(17, 0);
 
         // Calcular tardanza y descuento para ENTRADA
         boolean esTardia = false;
@@ -144,10 +138,47 @@ public class MarcacionService {
         BigDecimal descuento = BigDecimal.ZERO;
 
         if (tipo == Marcacion.TipoMarcacion.ENTRADA) {
-            if (horaActual.isAfter(HORA_ENTRADA)) {
+            // Se permite marcar entrada a cualquier hora (incluso muy temprano como pidió el usuario)
+            if (horaActual.isAfter(shiftEntrada)) {
                 esTardia = true;
-                minutosTarde = (int) ChronoUnit.MINUTES.between(HORA_ENTRADA, horaActual);
-                descuento = calcularDescuento(usuario, minutosTarde);
+                minutosTarde = (int) ChronoUnit.MINUTES.between(shiftEntrada, horaActual);
+                
+                // Margen de tolerancia
+                int tolerancia = (turno != null) ? turno.getToleranciaMinutos() : 10;
+                if (minutosTarde <= tolerancia) {
+                    esTardia = false;
+                    minutosTarde = 0;
+                } else {
+                    descuento = calcularDescuento(usuario, minutosTarde);
+                }
+            }
+        }
+        
+        // La marcación de SALIDA se permite siempre, ya sea antes o después del horario oficial
+        // Esto permite registrar horas extra y salidas flexibles solicitadas.
+
+        // Detectar dispositivo compartido
+        boolean esDispositivoCompartido = false;
+        String compartidoCon = null;
+        String fingerprint = request.getDeviceFingerprint();
+
+        if (fingerprint != null && !fingerprint.isEmpty()) {
+            List<Marcacion> otrosMismoDispositivo = marcacionRepository
+                    .findByDeviceFingerprintAndNotUsuarioHoy(fingerprint, usuarioId);
+            if (!otrosMismoDispositivo.isEmpty()) {
+                esDispositivoCompartido = true;
+                StringBuilder nombres = new StringBuilder();
+                java.util.Set<String> nombresUnicos = new java.util.HashSet<>();
+                for (Marcacion m : otrosMismoDispositivo) {
+                    String nombre = m.getUsuario().getNombreCompleto();
+                    if (nombresUnicos.add(nombre)) {
+                        if (nombres.length() > 0) nombres.append(", ");
+                        nombres.append(nombre);
+                    }
+                }
+                compartidoCon = nombres.toString();
+                log.warn("⚠️ DISPOSITIVO COMPARTIDO: {} usó el mismo dispositivo ({}) que: {}",
+                        usuario.getNombreCompleto(), fingerprint, compartidoCon);
             }
         }
 
@@ -163,6 +194,9 @@ public class MarcacionService {
                 .minutosTarde(minutosTarde)
                 .descuentoCalculado(descuento)
                 .usuario(usuario)
+                .deviceFingerprint(fingerprint)
+                .dispositivoCompartido(esDispositivoCompartido)
+                .dispositivoCompartidoCon(compartidoCon)
                 .build();
 
         Marcacion saved = marcacionRepository.save(marcacion);
@@ -172,6 +206,10 @@ public class MarcacionService {
                 usuario.getNombreCompleto(),
                 tipo == Marcacion.TipoMarcacion.ENTRADA ? "ENTRADA" : "SALIDA",
                 usuario.getSucursal() != null ? usuario.getSucursal().getNombre() : "Ubicación General");
+
+        if (esDispositivoCompartido) {
+            alertMsg += " ⚠️ DISPOSITIVO COMPARTIDO con " + compartidoCon;
+        }
 
         notificationService.sendAdminAlert("MARKING", alertMsg, MarcacionDTO.fromEntity(saved));
 
@@ -194,13 +232,23 @@ public class MarcacionService {
         BigDecimal jornalDiario = usuario.getSalarioMensual()
                 .divide(BigDecimal.valueOf(DIAS_LABORALES_MES), 4, RoundingMode.HALF_UP);
 
+        // Minutos de jornada del turno
+        int minsJornada = MIN_MINUTOS_JORNADA;
+        if (usuario.getTurno() != null) {
+            minsJornada = (int) ChronoUnit.MINUTES.between(
+                usuario.getTurno().getHoraEntrada(), 
+                usuario.getTurno().getHoraSalida()
+            );
+            if (minsJornada <= 0) minsJornada = MIN_MINUTOS_JORNADA;
+        }
+
         // Valor por minuto = jornal diario / minutos de jornada
         BigDecimal valorMinuto = jornalDiario
-                .divide(BigDecimal.valueOf(MINUTOS_JORNADA), 4, RoundingMode.HALF_UP);
+                .divide(BigDecimal.valueOf(minsJornada), 4, RoundingMode.HALF_UP);
 
         // Descuento = minutos tarde * valor por minuto
         BigDecimal descuentoCalculado = valorMinuto.multiply(BigDecimal.valueOf(minutosTarde))
-                .setScale(0, RoundingMode.HALF_UP); // Redondear a entero (Guaraníes)
+                .setScale(0, RoundingMode.HALF_UP);
 
         // LIMITAR: El descuento NO puede superar el jornal diario
         if (descuentoCalculado.compareTo(jornalDiario) > 0) {
@@ -240,41 +288,46 @@ public class MarcacionService {
      * Verifica si se puede marcar en el horario actual.
      */
     public boolean puedeMarcar(Long usuarioId) {
-        Marcacion.TipoMarcacion tipo = determinarTipoMarcacion(usuarioId);
-        LocalTime horaActual = LocalTime.now();
-
-        if (tipo == Marcacion.TipoMarcacion.SALIDA) {
-            return !horaActual.isBefore(HORA_SALIDA);
-        }
-        return true; // Siempre puede marcar entrada (aunque sea tarde)
+        // Ahora siempre se puede marcar, independientemente del horario, 
+        // eliminando bloqueos de salida temprana o entrada muy anticipada.
+        return true; 
     }
 
     /**
      * Obtiene información del horario configurado.
      */
     public java.util.Map<String, Object> getInfoHorario(Long usuarioId) {
+        Usuario usuario = usuarioService.getEntityById(usuarioId);
         Marcacion.TipoMarcacion tipo = determinarTipoMarcacion(usuarioId);
         LocalTime horaActual = LocalTime.now();
+        
+        com.relojreducto.entity.Turno turno = usuario.getTurno();
+        LocalTime shiftEntrada = (turno != null) ? turno.getHoraEntrada() : LocalTime.of(8, 0);
+        LocalTime shiftSalida = (turno != null) ? turno.getHoraSalida() : LocalTime.of(17, 0);
 
         java.util.Map<String, Object> info = new java.util.HashMap<>();
         info.put("proximaMarcacion", tipo.name());
-        info.put("horaEntrada", HORA_ENTRADA.toString());
-        info.put("horaSalida", HORA_SALIDA.toString());
-        info.put("puedeMarcar", puedeMarcar(usuarioId));
+        info.put("horaEntrada", shiftEntrada.toString());
+        info.put("horaSalida", shiftSalida.toString());
+        info.put("puedeMarcar", true);
 
-        if (tipo == Marcacion.TipoMarcacion.ENTRADA && horaActual.isAfter(HORA_ENTRADA)) {
-            int minutosTarde = (int) ChronoUnit.MINUTES.between(HORA_ENTRADA, horaActual);
-            info.put("esTarde", true);
-            info.put("minutosTarde", minutosTarde);
+        if (tipo == Marcacion.TipoMarcacion.ENTRADA && horaActual.isAfter(shiftEntrada)) {
+            int minutosTarde = (int) ChronoUnit.MINUTES.between(shiftEntrada, horaActual);
+            int t = (turno != null) ? turno.getToleranciaMinutos() : 10;
+            if (minutosTarde > t) {
+                info.put("esTarde", true);
+                info.put("minutosTarde", minutosTarde);
+            } else {
+                info.put("esTarde", false);
+                info.put("minutosTarde", 0);
+            }
         } else {
             info.put("esTarde", false);
             info.put("minutosTarde", 0);
         }
 
-        if (tipo == Marcacion.TipoMarcacion.SALIDA && horaActual.isBefore(HORA_SALIDA)) {
-            long minutosRestantes = ChronoUnit.MINUTES.between(horaActual, HORA_SALIDA);
-            info.put("minutosParaSalida", minutosRestantes);
-        }
+        // Eliminamos la lógica de minutos restates bloqueantes para salida
+        info.put("minutosParaSalida", 0);
 
         return info;
     }
@@ -430,6 +483,20 @@ public class MarcacionService {
                 .filter(m -> m.getEsTardia() != null && m.getEsTardia())
                 .map(m -> m.getDescuentoCalculado() != null ? m.getDescuentoCalculado() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * Obtiene el número de llegadas tardías del usuario en el mes actual.
+     */
+    public long getLlegadasTardiasMes(Long usuarioId) {
+        LocalDate inicioMes = LocalDate.now().withDayOfMonth(1);
+        LocalDate finMes = LocalDate.now().withDayOfMonth(LocalDate.now().lengthOfMonth());
+        List<Marcacion> marcacionesMes = marcacionRepository.findByUsuarioIdAndFechaHoraBetweenOrderByFechaHoraDesc(
+                usuarioId, inicioMes.atStartOfDay(), finMes.atTime(LocalTime.MAX));
+
+        return marcacionesMes.stream()
+                .filter(m -> Boolean.TRUE.equals(m.getEsTardia()))
+                .count();
     }
 
     /**

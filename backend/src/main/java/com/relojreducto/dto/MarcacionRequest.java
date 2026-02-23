@@ -27,6 +27,7 @@ public class MarcacionRequest {
     private String observacion;
     private Double accuracy; // Precisión del GPS
     private Boolean isMocked; // Indicador de ubicación falsa (si el dispositivo lo reporta)
+    private String deviceFingerprint; // Huella del dispositivo para control
 
     public MarcacionRequest() {
     }
@@ -93,5 +94,13 @@ public class MarcacionRequest {
 
     public void setIsMocked(Boolean isMocked) {
         this.isMocked = isMocked;
+    }
+
+    public String getDeviceFingerprint() {
+        return deviceFingerprint;
+    }
+
+    public void setDeviceFingerprint(String deviceFingerprint) {
+        this.deviceFingerprint = deviceFingerprint;
     }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, Calendar as CalendarIcon, ChevronRight, X } from 'lucide-react';
 import './VistaHistorial.css';
 
@@ -6,6 +6,16 @@ function VistaHistorial({ onBack, marcaciones = [] }) {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [showPicker, setShowPicker] = useState(false);
     const [tempDate, setTempDate] = useState(new Date());
+    const todayRowRef = useRef(null);
+
+    // Auto-scroll al día actual cuando se abre o cambia el mes
+    useEffect(() => {
+        if (todayRowRef.current) {
+            setTimeout(() => {
+                todayRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 150);
+        }
+    }, [selectedDate]);
 
     const months = [
         'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -119,7 +129,7 @@ function VistaHistorial({ onBack, marcaciones = [] }) {
                                 const highlighted = isToday(day);
 
                                 return (
-                                    <tr key={day} className={highlighted ? 'highlight' : ''}>
+                                    <tr key={day} className={highlighted ? 'highlight' : ''} ref={highlighted ? todayRowRef : null}>
                                         <td className="day-num">{day.toString().padStart(2, '0')}/{(selectedDate.getMonth() + 1).toString().padStart(2, '0')}</td>
                                         <td className="day-name">{dayName}</td>
                                         <td className={`time-val text-center ${marc.entrada?.esTardia ? 'tardia' : ''} ${highlighted ? 'green-text' : ''}`}>

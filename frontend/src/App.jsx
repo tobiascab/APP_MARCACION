@@ -22,8 +22,11 @@ function ProtectedRoute({ children, adminOnly = false }) {
   return children;
 }
 
+import { useModal } from './context/ModernModalContext';
+
 // Componente principal de la app que maneja la captura de foto
 function AppContent() {
+  const { alert } = useModal();
   const [showCapturaFoto, setShowCapturaFoto] = useState(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -57,7 +60,7 @@ function AppContent() {
       window.location.reload();
     } catch (error) {
       console.error('Error al guardar datos:', error);
-      alert('Error al guardar la información. Intenta nuevamente.');
+      alert('Error al Guardar', 'Hubo un problema al guardar tu información corporativa. Por favor, intenta nuevamente.', 'error');
     }
   };
 
@@ -125,8 +128,14 @@ function AppContent() {
   );
 }
 
+import { ModalProvider } from './context/ModernModalContext';
+
 function App() {
-  return <AppContent />;
+  return (
+    <ModalProvider>
+      <AppContent />
+    </ModalProvider>
+  );
 }
 
 export default App;

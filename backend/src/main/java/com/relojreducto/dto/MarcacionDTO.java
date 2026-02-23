@@ -20,6 +20,11 @@ public class MarcacionDTO {
     private Integer minutosTarde;
     private BigDecimal descuentoCalculado;
 
+    // Control de dispositivos
+    private Boolean dispositivoCompartido;
+    private String dispositivoCompartidoCon;
+    private String deviceFingerprint;
+
     public MarcacionDTO() {
     }
 
@@ -136,6 +141,30 @@ public class MarcacionDTO {
         this.descuentoCalculado = descuentoCalculado;
     }
 
+    public Boolean getDispositivoCompartido() {
+        return dispositivoCompartido;
+    }
+
+    public void setDispositivoCompartido(Boolean dispositivoCompartido) {
+        this.dispositivoCompartido = dispositivoCompartido;
+    }
+
+    public String getDispositivoCompartidoCon() {
+        return dispositivoCompartidoCon;
+    }
+
+    public void setDispositivoCompartidoCon(String dispositivoCompartidoCon) {
+        this.dispositivoCompartidoCon = dispositivoCompartidoCon;
+    }
+
+    public String getDeviceFingerprint() {
+        return deviceFingerprint;
+    }
+
+    public void setDeviceFingerprint(String deviceFingerprint) {
+        this.deviceFingerprint = deviceFingerprint;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -221,7 +250,7 @@ public class MarcacionDTO {
     }
 
     public static MarcacionDTO fromEntity(Marcacion marcacion) {
-        return new Builder()
+        MarcacionDTO dto = new Builder()
                 .id(marcacion.getId())
                 .fechaHora(marcacion.getFechaHora())
                 .tipo(marcacion.getTipo().name())
@@ -235,5 +264,9 @@ public class MarcacionDTO {
                 .minutosTarde(marcacion.getMinutosTarde())
                 .descuentoCalculado(marcacion.getDescuentoCalculado())
                 .build();
+        dto.setDispositivoCompartido(marcacion.getDispositivoCompartido());
+        dto.setDispositivoCompartidoCon(marcacion.getDispositivoCompartidoCon());
+        dto.setDeviceFingerprint(marcacion.getDeviceFingerprint());
+        return dto;
     }
 }

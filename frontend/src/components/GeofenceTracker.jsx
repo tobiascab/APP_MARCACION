@@ -5,20 +5,22 @@ import api from '../services/api';
 /**
  * GeofenceTracker - Tracking por geofence + seguridad con soporte background.
  * 
+ * ACTUALIZADO: Envía ubicación cada 30 segundos para tracking en tiempo real.
+ * 
  * Estrategia para funcionar con la app en segundo plano:
  * 1. watchPosition() - Sigue rastreando incluso con pantalla apagada (Android Chrome)
  * 2. Wake Lock API - Evita que el dispositivo suspenda la app
  * 3. Service Worker - Periodic Background Sync para cuando la app está cerrada
  * 4. Notification persistente - Mantiene el proceso vivo en Android
- * 
- * El empleado NO ve nada (excepto la notificación de tracking si la acepta).
+ * 5. Fallback con setInterval - Respaldo extra cada 30s
  */
 const GeofenceTracker = () => {
     const watchIdRef = useRef(null);
     const hasCheckedIn = useRef(false);
     const wakeLockRef = useRef(null);
     const lastSentRef = useRef(0);
-    const SEND_INTERVAL = 2 * 60 * 1000; // Enviar cada 2 minutos mínimo
+    const fallbackIntervalRef = useRef(null);
+    const SEND_INTERVAL = 5 * 1000; // Enviar cada 5 segundos para tracking real-time
 
     useEffect(() => {
         iniciarTracking();
@@ -34,14 +36,13 @@ const GeofenceTracker = () => {
         // 1. Registrar Service Worker
         registrarServiceWorker();
 
-        // 2. Solicitar Wake Lock (mantener pantalla/CPU activo)
+        // 2. Solicitar Wake Lock
         solicitarWakeLock();
 
-        // 3. Solicitar permiso de notificación para tracking persistente
+        // 3. Solicitar permiso de notificación
         solicitarNotificacion();
 
-        // 4. Usar watchPosition en vez de getCurrentPosition
-        //    watchPosition sigue enviando updates incluso en background
+        // 4. watchPosition para updates continuos
         watchIdRef.current = navigator.geolocation.watchPosition(
             async (position) => {
                 const { latitude, longitude, accuracy, speed } = position.coords;
@@ -57,26 +58,26 @@ const GeofenceTracker = () => {
                     } catch (e) { /* silencioso */ }
                 }
 
-                // Tracking: enviar cada 2 minutos máximo
+                // Tracking: enviar cada 5 segundos
                 if (ahora - lastSentRef.current >= SEND_INTERVAL) {
                     lastSentRef.current = ahora;
-                    await enviarUbicacion(latitude, longitude, accuracy, speed);
+                    enviarUbicacion(latitude, longitude, accuracy, speed);
                 }
             },
             (error) => {
-                // Si falla watchPosition, usar fallback con intervalo
-                console.log('[Tracker] watchPosition error, usando fallback');
                 usarFallbackIntervalo();
             },
             {
                 enableHighAccuracy: true,
                 timeout: 30000,
-                maximumAge: 60000, // Cache de 1 min para ahorrar batería
-                // distanceFilter no es estándar pero Chrome Android lo respeta
+                maximumAge: 10000, // Cache de 10 seg para frescura
             }
         );
 
-        // 5. Listener para re-adquirir wake lock al volver a la app
+        // 5. SIEMPRE iniciar fallback por intervalo como respaldo
+        iniciarFallbackParalelo();
+
+        // 6. Listener para re-adquirir wake lock al volver a la app
         document.addEventListener('visibilitychange', handleVisibilityChange);
     };
 
@@ -117,15 +118,47 @@ const GeofenceTracker = () => {
     };
 
     // ==========================================
+    // FALLBACK PARALELO: cada 30s obtener ubicación
+    // Funciona incluso si watchPosition no envía updates
+    // ==========================================
+    const iniciarFallbackParalelo = () => {
+        if (fallbackIntervalRef.current) clearInterval(fallbackIntervalRef.current);
+
+        fallbackIntervalRef.current = setInterval(() => {
+            const ahora = Date.now();
+            // Solo enviar si watchPosition no envió recientemente
+            if (ahora - lastSentRef.current >= SEND_INTERVAL - 5000) {
+                navigator.geolocation.getCurrentPosition(
+                    async (position) => {
+                        const { latitude, longitude, accuracy, speed } = position.coords;
+
+                        if (!hasCheckedIn.current) {
+                            try {
+                                const result = await preMarcacionService.checkin(latitude, longitude, accuracy);
+                                if (result.status === 'registrado' || result.status === 'ya_registrado') {
+                                    hasCheckedIn.current = true;
+                                }
+                            } catch (e) { /* */ }
+                        }
+
+                        lastSentRef.current = Date.now();
+                        await enviarUbicacion(latitude, longitude, accuracy, speed);
+                    },
+                    () => { /* silencioso */ },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+                );
+            }
+        }, SEND_INTERVAL);
+    };
+
+    // ==========================================
     // SERVICE WORKER
     // ==========================================
     const registrarServiceWorker = async () => {
         if ('serviceWorker' in navigator) {
             try {
                 const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-                console.log('[Tracker] Service Worker registrado');
 
-                // Enviar token al SW para que pueda hacer requests en background
                 const token = localStorage.getItem('token');
                 if (reg.active && token) {
                     reg.active.postMessage({
@@ -135,7 +168,6 @@ const GeofenceTracker = () => {
                     });
                 }
 
-                // También enviar cuando el SW se active
                 navigator.serviceWorker.ready.then(registration => {
                     if (registration.active && token) {
                         registration.active.postMessage({
@@ -145,65 +177,63 @@ const GeofenceTracker = () => {
                         });
                     }
 
-                    // Registrar Periodic Background Sync si disponible
+                    // Periodic Background Sync (cada 5 min en background)
                     if ('periodicSync' in registration) {
                         registration.periodicSync.register('background-tracking', {
-                            minInterval: 15 * 60 * 1000 // ~15 minutos
-                        }).catch(() => {
-                            console.log('[Tracker] Periodic Sync no disponible');
-                        });
+                            minInterval: 5 * 60 * 1000 // 5 minutos en background
+                        }).catch(() => { });
                     }
                 });
-            } catch (e) {
-                console.log('[Tracker] No se pudo registrar SW:', e.message);
-            }
+            } catch (e) { }
         }
     };
 
     // ==========================================
-    // WAKE LOCK (mantener dispositivo activo)
+    // WAKE LOCK
     // ==========================================
     const solicitarWakeLock = async () => {
         if ('wakeLock' in navigator) {
             try {
                 wakeLockRef.current = await navigator.wakeLock.request('screen');
-                console.log('[Tracker] Wake Lock adquirido');
-
-                wakeLockRef.current.addEventListener('release', () => {
-                    console.log('[Tracker] Wake Lock liberado');
-                });
-            } catch (e) {
-                console.log('[Tracker] Wake Lock no disponible:', e.message);
-            }
+                wakeLockRef.current.addEventListener('release', () => { });
+            } catch (e) { }
         }
     };
 
-    // Re-adquirir wake lock cuando la app vuelva a primer plano
     const handleVisibilityChange = async () => {
         if (document.visibilityState === 'visible') {
             await solicitarWakeLock();
+            // Re-enviar ubicación al volver a la app
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    const { latitude, longitude, accuracy, speed } = position.coords;
+                    lastSentRef.current = Date.now();
+                    await enviarUbicacion(latitude, longitude, accuracy, speed);
+                },
+                () => { },
+                { enableHighAccuracy: false, timeout: 10000, maximumAge: 5000 }
+            );
         }
     };
 
     // ==========================================
-    // NOTIFICACIÓN PERSISTENTE (mantiene SW vivo)
+    // NOTIFICACIÓN PERSISTENTE
     // ==========================================
     const solicitarNotificacion = async () => {
         if ('Notification' in window && Notification.permission === 'default') {
             try {
                 const permission = await Notification.requestPermission();
                 if (permission === 'granted') {
-                    // Mostrar notificación silenciosa persistente
                     const reg = await navigator.serviceWorker?.ready;
                     if (reg) {
                         reg.showNotification('RelojReducto', {
                             body: 'Tracking de ubicación activo para tu seguridad',
-                            icon: '/logo.png',
-                            badge: '/logo.png',
+                            icon: '/logo_cooperativa.png',
+                            badge: '/logo_cooperativa.png',
                             silent: true,
                             tag: 'tracking-active',
                             requireInteraction: false,
-                            ongoing: true // Android: notificación persistente
+                            ongoing: true
                         });
                     }
                 }
@@ -212,32 +242,10 @@ const GeofenceTracker = () => {
     };
 
     // ==========================================
-    // FALLBACK: Intervalo si watchPosition falla
+    // FALLBACK SI WATCHPOSITION FALLA COMPLETAMENTE
     // ==========================================
     const usarFallbackIntervalo = () => {
-        const fallbackInterval = setInterval(() => {
-            navigator.geolocation.getCurrentPosition(
-                async (position) => {
-                    const { latitude, longitude, accuracy, speed } = position.coords;
-
-                    if (!hasCheckedIn.current) {
-                        try {
-                            const result = await preMarcacionService.checkin(latitude, longitude, accuracy);
-                            if (result.status === 'registrado' || result.status === 'ya_registrado') {
-                                hasCheckedIn.current = true;
-                            }
-                        } catch (e) { /* */ }
-                    }
-
-                    await enviarUbicacion(latitude, longitude, accuracy, speed);
-                },
-                () => { /* silencioso */ },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-            );
-        }, SEND_INTERVAL);
-
-        // Limpiar al desmontar
-        return () => clearInterval(fallbackInterval);
+        iniciarFallbackParalelo();
     };
 
     // ==========================================
@@ -246,6 +254,9 @@ const GeofenceTracker = () => {
     const detenerTracking = () => {
         if (watchIdRef.current !== null) {
             navigator.geolocation.clearWatch(watchIdRef.current);
+        }
+        if (fallbackIntervalRef.current) {
+            clearInterval(fallbackIntervalRef.current);
         }
         if (wakeLockRef.current) {
             wakeLockRef.current.release().catch(() => { });

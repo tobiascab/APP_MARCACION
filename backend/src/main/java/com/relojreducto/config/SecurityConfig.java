@@ -2,8 +2,6 @@ package com.relojreducto.config;
 
 import com.relojreducto.security.CustomUserDetailsService;
 import com.relojreducto.security.JwtAuthenticationFilter;
-
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -24,10 +22,8 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.Collections;
 
-/**
- * Configuración de Spring Security con JWT.
- */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -41,30 +37,26 @@ public class SecurityConfig {
         this.userDetailsService = userDetailsService;
     }
 
-    @Value("${cors.allowed-origins}")
-    private String allowedOrigins;
-
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .authorizeHttpRequests(auth -> auth
-                        // Endpoints públicos
-                        .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/api/health").permitAll()
-                        .requestMatchers("/ws-notifications/**").permitAll()
-                        // Endpoints para admin
-                        .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "ADMIN_SUCURSAL")
-                        // Todos los demás requieren autenticación
-                        .anyRequest().authenticated())
-                .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // Security Headers
                 .headers(headers -> headers
-                        .frameOptions(frame -> frame.deny()) // Previene Clickjacking
-                        .xssProtection(xss -> xss.disable()) // El navegador maneja XSS hoy en día, pero se prefiere CSP
-                        .contentSecurityPolicy(csp -> csp
-                                .policyDirectives("default-src 'self'; script-src 'self'; object-src 'none';")))
+                        .frameOptions(frame -> frame.sameOrigin())
+                        .xssProtection(xss -> xss.headerValue(org.springframework.security.web.header.writers.XXssProtectionHeaderWriter.HeaderValue.ENABLED_MODE_BLOCK))
+                        .contentTypeOptions(content -> {})
+                        .httpStrictTransportSecurity(hsts -> hsts
+                                .includeSubDomains(true)
+                                .maxAgeInSeconds(31536000))
+                        .cacheControl(cache -> {})
+                )
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/auth/**", "/api/health", "/error", "/ws-notifications/**").permitAll()
+                        .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "ADMIN_SUCURSAL")
+                        .anyRequest().authenticated())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -74,25 +66,18 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // Orígenes permitidos específicos
+        // Orígenes permitidos (solo producción + desarrollo local)
         configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:5173",
-                "https://localhost:5173",
-                "http://192.168.100.162:5173",
-                "https://192.168.100.162:5173"));
+            "https://asistoreducto.arizar-ia.cloud",
+            "http://localhost:5173",
+            "https://localhost:5173"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(Arrays.asList(
-                "Authorization",
-                "Content-Type",
-                "X-Requested-With",
-                "Accept",
-                "Origin",
-                "Access-Control-Request-Method",
-                "Access-Control-Request-Headers"));
-        configuration.setExposedHeaders(Arrays.asList("Authorization"));
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"));
+        configuration.setExposedHeaders(Collections.singletonList("Authorization"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
-
+        
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;

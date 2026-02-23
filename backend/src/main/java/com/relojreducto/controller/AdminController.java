@@ -176,6 +176,49 @@ public class AdminController {
     }
 
     /**
+     * Cambia la contraseña de un usuario.
+     * PUT /api/admin/usuarios/{id}/password
+     */
+    @PutMapping("/usuarios/{id}/password")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> changePassword(@PathVariable Long id, @RequestBody Map<String, String> payload) {
+        String newPassword = payload.get("password");
+        if (newPassword == null || newPassword.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "La nueva contraseña es requerida"));
+        }
+        try {
+            usuarioService.changePassword(id, newPassword);
+            return ResponseEntity.ok(Map.of("message", "Contraseña actualizada correctamente"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Resetea la contraseña de un usuario a su CI.
+     * PUT /api/admin/usuarios/{id}/reset-password
+     */
+    @PutMapping("/usuarios/{id}/reset-password")
+    public ResponseEntity<?> resetPassword(@PathVariable Long id) {
+        try {
+            Usuario actual = getUsuarioActualEntity();
+            UsuarioDTO targetUser = usuarioService.findById(id);
+
+            // ADMIN_SUCURSAL solo puede resetear a los de su sucursal
+            if (actual.getRol() == Usuario.Rol.ADMIN_SUCURSAL && actual.getSucursal() != null) {
+                if (!actual.getSucursal().getId().equals(targetUser.getSucursalId())) {
+                    return ResponseEntity.status(403).body(Map.of("error", "No tiene permisos sobre este usuario"));
+                }
+            }
+
+            usuarioService.resetPasswordToUsername(id);
+            return ResponseEntity.ok(Map.of("message", "Contraseña reseteada al CI correctamente"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
      * Exportar usuarios a Excel.
      * GET /api/admin/usuarios/exportar
      */

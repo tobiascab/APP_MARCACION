@@ -44,6 +44,8 @@ function Dashboard() {
     const isDraggingRef = useRef(false);
     const directionLocked = useRef(null); // 'horizontal' | 'vertical' | null
     const sliderRef = useRef(null);
+    const swipeInProgressRef = useRef(false);
+    const pendingTabRef = useRef(null);
     const minSwipeDistance = 40;
     const tabs = ['home', 'marcar', 'menu'];
 
@@ -61,7 +63,26 @@ function Dashboard() {
 
     const getActiveIndex = () => tabs.indexOf(activeTab);
 
+    // Cuando cambia activeTab, asegurar que el slider esté en posición correcta
+    useEffect(() => {
+        if (sliderRef.current && !isDraggingRef.current && !swipeInProgressRef.current) {
+            sliderRef.current.style.transition = 'none';
+            sliderRef.current.style.transform = `translateX(-${getActiveIndex() * 33.333}%)`;
+        }
+    }, [activeTab]);
+
     const onTouchStart = (e) => {
+        // Si hay una animación en progreso, forzar completarla
+        if (swipeInProgressRef.current && sliderRef.current) {
+            swipeInProgressRef.current = false;
+            if (pendingTabRef.current !== null) {
+                setActiveTab(tabs[pendingTabRef.current]);
+                sliderRef.current.style.transition = 'none';
+                sliderRef.current.style.transform = `translateX(-${pendingTabRef.current * 33.333}%)`;
+                pendingTabRef.current = null;
+            }
+        }
+
         touchStartRef.current = {
             x: e.targetTouches[0].clientX,
             y: e.targetTouches[0].clientY
@@ -126,16 +147,32 @@ function Dashboard() {
             }
         }
 
-        sliderRef.current.style.transition = 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)';
+        // Animar al destino
+        swipeInProgressRef.current = true;
+        pendingTabRef.current = nextIndex;
+        sliderRef.current.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
         sliderRef.current.style.transform = `translateX(-${nextIndex * 33.333}%)`;
 
-        setTimeout(() => {
+        // Usar transitionend en lugar de setTimeout para mayor precisión
+        const handleTransitionEnd = () => {
+            sliderRef.current?.removeEventListener('transitionend', handleTransitionEnd);
+            swipeInProgressRef.current = false;
+            pendingTabRef.current = null;
             setActiveTab(tabs[nextIndex]);
             if (sliderRef.current) {
-                sliderRef.current.style.transition = '';
-                sliderRef.current.style.transform = '';
+                sliderRef.current.style.transition = 'none';
+                sliderRef.current.style.transform = `translateX(-${nextIndex * 33.333}%)`;
             }
-        }, 370);
+        };
+
+        sliderRef.current.addEventListener('transitionend', handleTransitionEnd, { once: true });
+
+        // Safety fallback: si transitionend no se dispara (ej: mismo destino), limpiar después de 350ms
+        setTimeout(() => {
+            if (swipeInProgressRef.current && pendingTabRef.current === nextIndex) {
+                handleTransitionEnd();
+            }
+        }, 350);
     };
 
     const onTouchCancel = () => {
@@ -217,15 +254,161 @@ function Dashboard() {
         });
     };
 
+    // Detectar si es desktop
+    const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
+    useEffect(() => {
+        const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const renderModals = () => (
+        <>
+            {showFullHistory && <VistaHistorial marcaciones={historialMarcaciones} onBack={() => setShowFullHistory(false)} />}
+            {showMap && <VistaMarcacionMapa usuario={usuario} onBack={() => setShowMap(false)} onMarcar={handleConfirmarMarcacionMapa} />}
+            {showProfile && <MiPerfil usuario={usuario} onClose={() => setShowProfile(false)} onUpdate={cargarDatos} />}
+            {showJustificaciones && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#f8fafc', overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', padding: '1rem', background: 'white', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 2 }}>
+                        <button onClick={() => setShowJustificaciones(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#3b82f6' }}>
+                            <ChevronRight size={24} style={{ transform: 'rotate(180deg)' }} />
+                        </button>
+                        <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, marginLeft: 8 }}>Mis Justificaciones</h2>
+                    </div>
+                    <MisJustificaciones />
+                </div>
+            )}
+        </>
+    );
+
+    if (isDesktop) {
+        return (
+            <div className="desktop-dashboard">
+                {usuario?.requiereGeolocalizacion && <GeofenceTracker />}
+                <InstallPWABanner />
+                <header className="desktop-header">
+                    <div className="desktop-header-left">
+                        <img src="/logo_cooperativa.png" alt="Logo" className="desktop-logo" />
+                        <h1 className="desktop-brand">RelojReducto</h1>
+                    </div>
+                    <div className="desktop-header-right">
+                        <div className="desktop-user-info">
+                            <div className="user-avatar-header">
+                                {usuario?.fotoPerfil ? (
+                                    <img src={usuario.fotoPerfil} alt="Perfil" className="avatar-img-header" />
+                                ) : (<User size={20} />)}
+                            </div>
+                            <span style={{ fontWeight: 600, color: '#1e293b' }}>{usuario?.nombreCompleto}</span>
+                        </div>
+                        {usuario?.rol === 'ADMIN' && (
+                            <button className="desktop-action-btn" onClick={() => navigate('/admin')}>
+                                <Shield size={18} /><span>Admin</span>
+                            </button>
+                        )}
+                        <button className="desktop-action-btn logout" onClick={handleLogout}>
+                            <LogOut size={18} /><span>Salir</span>
+                        </button>
+                    </div>
+                </header>
+                <main className="desktop-main">
+                    <div className="desktop-col-left">
+                        <div className="desktop-clock-card">
+                            <div className="desktop-clock-time">
+                                {currentTime.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </div>
+                            <div className="desktop-clock-date">
+                                {currentTime.toLocaleDateString('es-PY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                            </div>
+                        </div>
+                        <div className="card jornada-card">
+                            <div className="jornada-header"><Clock size={20} /><span>Mi jornada - {formatDate(currentTime)}</span></div>
+                            <div className="jornada-content">
+                                {marcacionesHoy.length === 0 ? (
+                                    <p className="jornada-empty">Sin marcaciones en el día de hoy</p>
+                                ) : (
+                                    <div className="jornada-marcaciones">
+                                        {marcacionesHoy.map((m, i) => (
+                                            <div key={i} className={`jornada-item ${m.tipo.toLowerCase()}`}>
+                                                <span className="jornada-tipo">{m.tipo}</span>
+                                                <span className="jornada-hora">{formatTime(m.fechaHora)}</span>
+                                                {m.esTardia && <span className="jornada-tardia">-{m.minutosTarde} min</span>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <button className="boton-ir-mapa" onClick={() => setShowMap(true)} style={{ borderRadius: 16 }}>
+                            <MapPin size={24} /><span>REGISTRAR MARCACIÓN</span>
+                        </button>
+                    </div>
+                    <div className="desktop-col-center">
+                        <div className="card historial-tabla-card" style={{ flex: 1 }}>
+                            <div className="jornada-header"><History size={20} /><span>Historial Reciente</span></div>
+                            <table className="historial-tabla">
+                                <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th></tr></thead>
+                                <tbody>
+                                    {agruparPorFecha(historialMarcaciones).map(([fecha, marcaciones], i) => (
+                                        <tr key={i} className={i === 0 ? 'hoy' : ''}>
+                                            <td className="fecha-col">{fecha.split('/').slice(0, 2).join('/')}/26</td>
+                                            <td className={marcaciones.entrada?.esTardia ? 'tardia' : ''}>{formatTime(marcaciones.entrada?.fechaHora)}</td>
+                                            <td>{formatTime(marcaciones.salida?.fechaHora)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <button className="desktop-link-btn" onClick={() => setShowFullHistory(true)}>
+                                <History size={16} />Ver historial completo<ChevronRight size={16} />
+                            </button>
+                        </div>
+                    </div>
+                    <div className="desktop-col-right">
+                        <div className="desktop-menu-card">
+                            <h3 className="desktop-menu-title">Menú</h3>
+                            <div className="menu-list">
+                                {usuario?.rol === 'ADMIN' && (
+                                    <button className="menu-item" onClick={() => navigate('/admin')}>
+                                        <Shield size={20} /><span>Panel de Administración</span><ChevronRight size={18} />
+                                    </button>
+                                )}
+                                <button className="menu-item" onClick={() => setShowProfile(true)}>
+                                    <User size={20} /><span>Mi Perfil</span><ChevronRight size={18} />
+                                </button>
+                                <button className="menu-item" onClick={() => setShowFullHistory(true)}>
+                                    <History size={20} /><span>Historial Completo</span><ChevronRight size={18} />
+                                </button>
+                                <button className="menu-item" onClick={() => setShowJustificaciones(true)}>
+                                    <FileText size={20} /><span>Mis Justificaciones</span><ChevronRight size={18} />
+                                </button>
+                                <button className="menu-item danger" onClick={handleLogout}>
+                                    <LogOut size={20} /><span>Cerrar Sesión</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+                {renderModals()}
+            </div>
+        );
+    }
+
     return (
         <div className="app-container">
-            {/* Tracker de geofence silencioso - invisible para el usuario */}
-            <GeofenceTracker />
-            {/* Banner de instalación PWA */}
+            {usuario?.requiereGeolocalizacion && <GeofenceTracker />}
             <InstallPWABanner />
             {/* Header */}
-            <header className="app-header">
-                <div className="header-user">
+            <header style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0.75rem 1rem',
+                background: 'white',
+                borderBottom: '1px solid #f1f5f9',
+                flexShrink: 0,
+                zIndex: 100,
+                gap: '0.75rem',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: 0 }}>
                     <div className="user-avatar-header">
                         {usuario?.fotoPerfil ? (
                             <img src={usuario.fotoPerfil} alt="Perfil" className="avatar-img-header" />
@@ -233,9 +416,11 @@ function Dashboard() {
                             <User size={20} />
                         )}
                     </div>
-                    <span className="user-name-header">{usuario?.nombreCompleto}</span>
+                    <span style={{ fontWeight: 600, fontSize: '1rem', color: '#1e293b', flex: 1 }}>
+                        {usuario?.nombreCompleto}
+                    </span>
                 </div>
-                <div className="header-actions">
+                <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
                     {usuario?.rol === 'ADMIN' && (
                         <button className="header-btn" onClick={() => navigate('/admin')}>
                             <Shield size={20} />
@@ -411,52 +596,7 @@ function Dashboard() {
                 </button>
             </nav>
 
-            {/* Vista Historial Full */}
-            {showFullHistory && (
-                <VistaHistorial
-                    marcaciones={historialMarcaciones}
-                    onBack={() => setShowFullHistory(false)}
-                />
-            )}
-
-            {/* Vista Mapa Full */}
-            {showMap && (
-                <VistaMarcacionMapa
-                    usuario={usuario}
-                    onBack={() => setShowMap(false)}
-                    onMarcar={handleConfirmarMarcacionMapa}
-                />
-            )}
-
-            {/* Mi Perfil */}
-            {showProfile && (
-                <MiPerfil
-                    usuario={usuario}
-                    onClose={() => setShowProfile(false)}
-                    onUpdate={cargarDatos}
-                />
-            )}
-
-            {/* Mis Justificaciones */}
-            {showJustificaciones && (
-                <div style={{
-                    position: 'fixed', inset: 0, zIndex: 9999,
-                    background: '#f8fafc', overflowY: 'auto'
-                }}>
-                    <div style={{
-                        display: 'flex', alignItems: 'center', padding: '1rem',
-                        background: 'white', borderBottom: '1px solid #e2e8f0',
-                        position: 'sticky', top: 0, zIndex: 2
-                    }}>
-                        <button onClick={() => setShowJustificaciones(false)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#3b82f6' }}>
-                            <ChevronRight size={24} style={{ transform: 'rotate(180deg)' }} />
-                        </button>
-                        <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, marginLeft: 8 }}>Mis Justificaciones</h2>
-                    </div>
-                    <MisJustificaciones />
-                </div>
-            )}
+            {renderModals()}
         </div>
     );
 }

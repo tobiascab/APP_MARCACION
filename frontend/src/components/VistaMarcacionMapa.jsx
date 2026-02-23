@@ -117,9 +117,27 @@ function VistaMarcacionMapa({ onBack, onMarcar, usuario }) {
                 setLoading(false);
             },
             (err) => {
-                console.error(err);
-                setError('No se pudo obtener tu ubicación. Activa el GPS e intenta de nuevo.');
-                setLoading(false);
+                console.warn('[Geo] Alta precisión falló, reintentando con baja precisión...', err.message);
+                // Fallback: intentar sin alta precisión (WiFi/IP - funciona mejor en PCs)
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const uLat = position.coords.latitude;
+                        const uLng = position.coords.longitude;
+                        setUserLocation({ lat: uLat, lng: uLng });
+
+                        if (hasBranchCoords) {
+                            const dist = calcularDistancia(uLat, uLng, sucursal.latitud, sucursal.longitud);
+                            setDistancia(dist);
+                        }
+                        setLoading(false);
+                    },
+                    (err2) => {
+                        console.error('[Geo] Sin ubicación:', err2);
+                        setError('No se pudo obtener tu ubicación. Verifica los permisos del navegador.');
+                        setLoading(false);
+                    },
+                    { enableHighAccuracy: false, timeout: 30000, maximumAge: 60000 }
+                );
             },
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
         );

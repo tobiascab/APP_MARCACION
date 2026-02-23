@@ -12,6 +12,7 @@ import {
     Fingerprint
 } from 'lucide-react';
 import ValidacionBiometrica from './ValidacionBiometrica';
+import JustificarTardanzaModal from './JustificarTardanzaModal';
 import { playSuccessSound, initAudioContext } from '../utils/soundUtils';
 import './BotonMarcacion.css';
 
@@ -31,6 +32,11 @@ function BotonMarcacion({ onMarcacionExitosa, compact = false }) {
     const [obteniendoUbicacion, setObteniendoUbicacion] = useState(false);
     const [mostrarBiometrico, setMostrarBiometrico] = useState(false);
     const [usuario, setUsuario] = useState(null);
+
+    // Modal Justificación
+    const [mostrarJustificacion, setMostrarJustificacion] = useState(false);
+    const [tardanzasMesCount, setTardanzasMesCount] = useState(0);
+    const [marcacionTardiaId, setMarcacionTardiaId] = useState(null);
 
     useEffect(() => {
         setUsuario(authService.getUsuarioActual());
@@ -144,15 +150,39 @@ function BotonMarcacion({ onMarcacionExitosa, compact = false }) {
             } else {
                 coords = await obtenerUbicacion();
             }
+            // Generar fingerprint único del dispositivo
+            const generateDeviceFingerprint = () => {
+                const components = [
+                    navigator.userAgent,
+                    screen.width + 'x' + screen.height,
+                    screen.colorDepth,
+                    Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    navigator.language,
+                    navigator.hardwareConcurrency || 'n/a',
+                    navigator.maxTouchPoints || 0,
+                    navigator.platform
+                ];
+                // Simple hash
+                let hash = 0;
+                const str = components.join('|');
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32bit integer
+                }
+                return 'DEV-' + Math.abs(hash).toString(36).toUpperCase();
+            };
 
-            const dispositivo = `${navigator.platform} - Web`;
+            const dispositivo = `${navigator.userAgent.substring(0, 80)}`;
+            const deviceFingerprint = generateDeviceFingerprint();
 
             const response = await marcacionService.registrar(
                 coords.latitud,
                 coords.longitud,
                 dispositivo,
                 coords.accuracy,
-                coords.isMocked
+                coords.isMocked,
+                deviceFingerprint
             );
 
             let textoMensaje = `¡${response.marcacion.tipo} registrada!`;
@@ -177,6 +207,18 @@ function BotonMarcacion({ onMarcacionExitosa, compact = false }) {
 
             if (onMarcacionExitosa) {
                 onMarcacionExitosa();
+            }
+
+            // Si llegó tarde, guardamos cuántas tardanzas lleva en el mes y mostramos el modal
+            if (response.marcacion.esTardia && response.marcacion.tipo === 'ENTRADA') {
+                const countTardanzas = response.tardanzasMes || 1;
+                if (countTardanzas >= 1) { // Mostrar desde la primera tardanza
+                    setTimeout(() => {
+                        setTardanzasMesCount(countTardanzas);
+                        setMarcacionTardiaId(response.marcacion.id);
+                        setMostrarJustificacion(true);
+                    }, 1000); // Dar 1 seg de margen para ver el mensaje de success
+                }
             }
 
             setTimeout(() => setMensaje(null), 5000);
@@ -250,6 +292,14 @@ function BotonMarcacion({ onMarcacionExitosa, compact = false }) {
                         <span>{mensaje.texto}</span>
                     </div>
                 )}
+
+                {/* Modal Justificar Tardanza */}
+                <JustificarTardanzaModal
+                    isOpen={mostrarJustificacion}
+                    onClose={() => setMostrarJustificacion(false)}
+                    tardanzasMes={tardanzasMesCount}
+                    marcacionId={marcacionTardiaId}
+                />
             </div>
         );
     }
@@ -333,6 +383,13 @@ function BotonMarcacion({ onMarcacionExitosa, compact = false }) {
                     username={usuario?.nombreCompleto}
                 />
             )}
+            {/* Modal Justificar Tardanza */}
+            <JustificarTardanzaModal
+                isOpen={mostrarJustificacion}
+                onClose={() => setMostrarJustificacion(false)}
+                tardanzasMes={tardanzasMesCount}
+                marcacionId={marcacionTardiaId}
+            />
         </div>
     );
 }

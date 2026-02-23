@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Plus, Clock, X, CheckCircle, XCircle, Send } from 'lucide-react';
+import { useModal } from '../context/ModernModalContext';
 import { justificacionService } from '../services/api';
 
 /**
@@ -7,6 +8,7 @@ import { justificacionService } from '../services/api';
  * Se integra como pestaña en el Dashboard del empleado.
  */
 const MisJustificaciones = () => {
+    const { alert } = useModal();
     const [justificaciones, setJustificaciones] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -27,7 +29,7 @@ const MisJustificaciones = () => {
 
     const handleEnviar = async () => {
         if (!motivo.trim()) {
-            alert('Debes ingresar un motivo');
+            alert('Campo Requerido', 'Debes ingresar un motivo detallado para tu justificación.', 'warning');
             return;
         }
         setEnviando(true);
@@ -36,8 +38,9 @@ const MisJustificaciones = () => {
             setShowForm(false);
             setMotivo('');
             cargarJustificaciones();
+            alert('Enviado', 'Tu justificación ha sido enviada para revisión.', 'success');
         } catch (e) {
-            alert('Error: ' + (e.response?.data?.error || e.message));
+            alert('Error al Enviar', (e.response?.data?.error || e.message), 'error');
         }
         finally { setEnviando(false); }
     };

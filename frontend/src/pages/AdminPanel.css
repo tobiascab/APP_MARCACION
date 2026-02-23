@@ -5,6 +5,17 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overscroll-behavior-y: none;
+    /* Desactiva pull-to-refresh */
+    overscroll-behavior-x: none;
+    /* Desactiva swipe para volver atras en Chrome (la flecha azul) */
+}
+
 :root {
     --p-emerald-50: #ecfdf5;
     --p-emerald-100: #d1fae5;
@@ -1544,11 +1555,16 @@
     align-items: center;
 }
 
-.form-group-icon svg {
+.form-group-icon>svg:not(.password-toggle-btn svg) {
     position: absolute;
     left: 1rem;
     color: var(--admin-text-muted);
     pointer-events: none;
+    z-index: 2;
+}
+
+.password-group input {
+    padding-right: 3rem !important;
 }
 
 .form-group-icon input,
@@ -1562,10 +1578,10 @@
 
 .password-toggle-btn {
     position: absolute;
-    right: 1rem;
+    right: 0.5rem;
     top: 50%;
     transform: translateY(-50%);
-    background: none;
+    background: transparent;
     border: none;
     padding: 0;
     margin: 0;
@@ -1575,10 +1591,17 @@
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
-    z-index: 5;
+    z-index: 10;
     border-radius: 50%;
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
+    outline: none;
+}
+
+.password-toggle-btn svg {
+    position: static !important;
+    left: auto !important;
+    pointer-events: auto !important;
 }
 
 .password-toggle-btn:hover {
@@ -1982,22 +2005,26 @@
     /* Sidebar Mobile Transformation */
     .admin-sidebar {
         position: fixed;
-        left: -100%;
-        /* Hidden by default */
         top: 0;
+        left: 0 !important;
         height: 100vh;
-        width: 85%;
-        /* Slightly less than full width */
-        max-width: 300px;
-        z-index: 1000;
-        transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        height: 100dvh;
+        width: 80% !important;
+        max-width: 320px !important;
+        z-index: 1100;
         background: #0b1121;
-        /* Dark background for mobile */
-        box-shadow: 5px 0 25px rgba(0, 0, 0, 0.2);
+        box-shadow: none;
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        transform: translateX(-100%);
+        pointer-events: none;
+        padding-bottom: 80px;
+        /* Espacio para la bottom-nav */
     }
 
     .admin-sidebar.mobile-open {
-        left: 0;
+        transform: translateX(0);
+        pointer-events: auto;
+        box-shadow: 10px 0 25px rgba(0, 0, 0, 0.5);
     }
 
     .mobile-menu-toggle {
@@ -2008,6 +2035,9 @@
 
     .mobile-overlay {
         display: block;
+        touch-action: none;
+        overscroll-behavior: none;
+        /* Evita que el fondo scrolee en mobile web */
     }
 
     /* Adjust Main Content */
@@ -2034,6 +2064,29 @@
         width: 100%;
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .header-actions .btn-primary {
+        position: fixed;
+        bottom: 1.5rem;
+        right: 1.5rem;
+        width: 56px;
+        height: 56px;
+        border-radius: 28px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 90;
+        box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.4);
+        font-size: 0;
+        /* Oculta el texto, deja el SVG visible */
+    }
+
+    .header-actions .btn-primary svg {
+        margin: 0;
+        width: 24px;
+        height: 24px;
     }
 
     /* Filters Bar Mobile */
@@ -2453,6 +2506,60 @@
 
 .eye-icon:hover {
     transform: scale(1.1);
+}
+
+/* AVATAR PREVIEW ON HOVER */
+.user-avatar-small {
+    position: relative;
+    cursor: pointer;
+}
+
+.avatar-preview {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    width: 500px;
+    height: 500px;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+    z-index: 9999;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 5px solid white;
+}
+
+/* Mostrar hover luego de 0.5 segundo de retraso */
+.user-avatar-small:hover .avatar-preview {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, -50%) scale(1);
+    transition-delay: 0.5s;
+}
+
+.avatar-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.avatar-preview .avatar-placeholder-large {
+    width: 100%;
+    height: 100%;
+    background: #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #64748b;
 }
 
 .modal-footer-count {
@@ -3027,4 +3134,228 @@
     justify-content: center;
     color: #cbd5e1;
     margin-bottom: 0.5rem;
+}
+
+/* Mobile Forms & Targets Enhancement */
+@media (max-width: 768px) {
+
+    .btn,
+    .action-btn,
+    button,
+    .input,
+    input,
+    select {
+        min-height: 44px;
+        /* Apple UI Guidelines */
+    }
+
+    .form-group input,
+    .form-group select {
+        height: 52px;
+        font-size: 16px;
+        /* Para prevenir auto-zoom en inputs en iOS */
+    }
+
+    .modal-content {
+        padding-bottom: 2rem;
+        /* Safe area pseudo-fix for mobile */
+    }
+
+    .card,
+    .stat-card {
+        padding: 1rem;
+        border-radius: 16px;
+    }
+
+    .admin-main {
+        padding: 4rem 1rem 80px 1rem !important;
+        /* Quitar márgenes excesivos laterales que comen pantalla en movil, y dejar padding bottom para la Navbar */
+    }
+
+    h1 {
+        font-size: 1.5rem !important;
+    }
+
+
+
+    /* Ocultamos scroll de dash cuando se abre menu usando overscroll */
+    .modal-overlay {
+        align-items: flex-end;
+        padding: 0;
+        touch-action: none;
+        overscroll-behavior: none;
+        /* Bloquea arrastre de fondo en Android/iOS */
+    }
+
+    .modal-content,
+    .side-modal {
+        border-radius: 24px 24px 0 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        margin: 0 !important;
+        max-height: 90vh !important;
+        height: auto !important;
+        position: relative !important;
+        animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .modal-content::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 40px;
+        height: 4px;
+        border-radius: 4px;
+        background: #cbd5e1;
+        z-index: 10;
+    }
+
+    .modal-header {
+        padding-top: 1.5rem;
+        /* Space for the drag handle */
+    }
+
+    /* Responsive Data Tables -> Cards */
+    .table-container {
+        border: none;
+        box-shadow: none;
+        background: transparent;
+        margin-bottom: 3rem;
+    }
+
+    .data-table,
+    .data-table thead,
+    .data-table tbody,
+    .data-table th,
+    .data-table td,
+    .data-table tr {
+        display: block;
+    }
+
+    .data-table thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+
+    .data-table tr {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        margin-bottom: 1rem;
+        padding: 0.5rem;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
+    }
+
+    .data-table td {
+        border: none;
+        position: relative;
+        padding: 0.75rem 0.5rem 0.75rem 40% !important;
+        text-align: right;
+        min-height: 40px;
+        border-bottom: 1px solid #f8fafc;
+    }
+
+    .data-table td:last-child {
+        border-bottom: none;
+    }
+
+    .data-table td::before {
+        content: attr(data-label);
+        position: absolute;
+        left: 0.5rem;
+        top: 0.75rem;
+        width: 35%;
+        text-align: left;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+    }
+
+    .actions-cell {
+        justify-content: flex-end;
+        padding: 0.5rem 0 !important;
+    }
+
+    /* Fab Button para movil */
+    .fab-button {
+        position: fixed;
+        bottom: 5rem;
+        /* Subido para evitar conflicto con bottom nav */
+        right: 1.5rem;
+        width: 56px;
+        height: 56px;
+        border-radius: 28px;
+        background: #10b981;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.4);
+        z-index: 90;
+        border: none;
+        cursor: pointer;
+    }
+
+    /* Fixed Bottom Navigation iOS/Android */
+    .mobile-bottom-nav {
+        display: flex;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 64px;
+        background: #ffffff;
+        border-top: 1px solid #e2e8f0;
+        box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.05);
+        z-index: 1000;
+        padding-bottom: env(safe-area-inset-bottom);
+        /* iOS support */
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+        justify-content: space-around;
+        align-items: center;
+    }
+
+    .bottom-nav-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        background: none;
+        border: none;
+        color: #94a3b8;
+        font-size: 11px;
+        font-weight: 600;
+        gap: 4px;
+        width: 100%;
+        height: 100%;
+        transition: color 0.2s;
+        cursor: pointer;
+    }
+
+    .bottom-nav-item svg {
+        transition: transform 0.2s;
+    }
+
+    .bottom-nav-item.active {
+        color: #10b981;
+    }
+
+    .bottom-nav-item.active svg {
+        transform: translateY(-2px);
+    }
+}
+
+/* Ocultar en Desktop */
+@media (min-width: 769px) {
+    .mobile-bottom-nav {
+        display: none;
+    }
 }
