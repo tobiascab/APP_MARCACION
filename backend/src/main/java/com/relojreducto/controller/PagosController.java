@@ -203,7 +203,7 @@ public class PagosController {
                 } else {
                     // Buscar si alguna marcación de ENTRADA tiene tardanza
                     for (Marcacion m : marcsDia) {
-                        if ("ENTRADA".equals(m.getTipo()) && m.getEsTardia() != null && m.getEsTardia()) {
+                        if (m.getTipo() == Marcacion.TipoMarcacion.ENTRADA && m.getEsTardia() != null && m.getEsTardia()) {
                             diasTardanza++;
                             if (m.getMinutosTarde() != null) {
                                 minutosTardanzaTotal += m.getMinutosTarde();

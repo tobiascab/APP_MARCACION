@@ -5,6 +5,7 @@
 
 /* CSS Variables - Paleta de Colores */
 :root {
+  color-scheme: only light;
   /* Colores Primarios - Verdes */
   --primary-50: #f0fdf4;
   --primary-100: #dcfce7;

@@ -447,6 +447,37 @@ export const trackingService = {
         const response = await api.get(url);
         return response.data;
     },
+
+    // Admin: Exportar ruta como KML (Google Earth)
+    exportKml: (usuarioId, fecha = null) => {
+        const token = localStorage.getItem('token');
+        const base = window.location.origin;
+        const url = fecha
+            ? `${base}/api/tracking/admin/ruta/${usuarioId}/exportar?fecha=${fecha}`
+            : `${base}/api/tracking/admin/ruta/${usuarioId}/exportar`;
+        // Descarga directa via link temporal
+        const a = document.createElement('a');
+        a.href = url;
+        a.setAttribute('download', '');
+        // Necesitamos añadir auth header, así que usamos fetch
+        fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
+            .then(r => r.blob())
+            .then(blob => {
+                const blobUrl = URL.createObjectURL(blob);
+                a.href = blobUrl;
+                a.click();
+                URL.revokeObjectURL(blobUrl);
+            });
+    },
+
+    // Admin: Resumen diario de tracking
+    getResumen: async (fecha = null) => {
+        const url = fecha
+            ? `/tracking/admin/resumen?fecha=${fecha}`
+            : `/tracking/admin/resumen`;
+        const response = await api.get(url);
+        return response.data;
+    },
 };
 
 // ==========================================

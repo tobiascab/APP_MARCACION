@@ -205,6 +205,11 @@ function BotonMarcacion({ onMarcacionExitosa, compact = false }) {
 
             await cargarEstado();
 
+            // Notificar al GeofenceTracker para iniciar/detener tracking
+            window.dispatchEvent(new CustomEvent('marcacion-realizada', {
+                detail: { tipo: response.marcacion.tipo }
+            }));
+
             if (onMarcacionExitosa) {
                 onMarcacionExitosa();
             }

@@ -10,4 +10,6 @@ public interface TurnoRepository extends JpaRepository<Turno, Long> {
     List<Turno> findByActivoTrue();
 
     List<Turno> findByActivoTrueOrderByNombreAsc();
+    
+    java.util.Optional<Turno> findByNombreIgnoreCase(String nombre);
 }

@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import AdminPanel from './pages/AdminPanel';
 import CapturaFoto from './components/CapturaFoto';
+import GeofenceTracker from './components/GeofenceTracker';
 
 // Componente para rutas protegidas
 function ProtectedRoute({ children, adminOnly = false }) {
@@ -85,8 +86,13 @@ function AppContent() {
     );
   }
 
+  const isAuth = authService.isAuthenticated();
+
   return (
     <>
+      {/* GPS Tracking - activo en TODAS las páginas mientras esté autenticado */}
+      {isAuth && location.pathname !== '/login' && <GeofenceTracker />}
+
       {/* Modal de captura de foto obligatoria */}
       {showCapturaFoto && (
         <CapturaFoto

@@ -118,6 +118,9 @@ public class UsuarioService {
 
         if (dto.getTurnoId() != null) {
             turnoRepository.findById(dto.getTurnoId()).ifPresent(usuario::setTurno);
+        } else {
+            // Asignar "HORARIO DIURNO" por defecto
+            turnoRepository.findByNombreIgnoreCase("HORARIO DIURNO").ifPresent(usuario::setTurno);
         }
 
         Usuario saved = usuarioRepository.save(usuario);
@@ -212,12 +215,18 @@ public class UsuarioService {
     @Transactional
     public void resetAllProfiles() {
         List<Usuario> usuarios = usuarioRepository.findAll();
+        com.relojreducto.entity.Turno diurno = turnoRepository.findByNombreIgnoreCase("HORARIO DIURNO").orElse(null);
+        
         for (Usuario usuario : usuarios) {
             usuario.setFotoPerfil(null);
             usuario.setEmailInstitucional(null);
             usuario.setTelefonoCorporativo(null);
             usuario.setNumeroSocio(null);
             usuario.setBiometricoHabilitado(false);
+            // Asignar horario diurno a todos
+            if (diurno != null) {
+                usuario.setTurno(diurno);
+            }
         }
         usuarioRepository.saveAll(usuarios);
     }

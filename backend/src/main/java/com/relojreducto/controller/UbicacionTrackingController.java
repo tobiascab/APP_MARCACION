@@ -19,7 +19,7 @@ import java.util.Map;
 /**
  * Controller para tracking de ubicaciones.
  * - Empleados envían su ubicación periódicamente (silencioso)
- * - Admins pueden ver mapa en tiempo real e historial de rutas
+ * - Admins pueden ver mapa en tiempo real, historial de rutas, exportar KML
  */
 @RestController
 @RequestMapping("/api/tracking")
@@ -89,30 +89,98 @@ public class UbicacionTrackingController {
         return ResponseEntity.ok(trackingService.getHistorialRuta(usuarioId, fecha));
     }
 
+    /**
+     * Exportar ruta como KML (Google Earth).
+     * GET /api/tracking/admin/ruta/{usuarioId}/exportar?fecha=2026-02-28
+     */
+    @GetMapping("/admin/ruta/{usuarioId}/exportar")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMIN_SUCURSAL')")
+    public ResponseEntity<String> exportarRutaKml(
+            @PathVariable Long usuarioId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha) {
+
+        List<UbicacionTrackingDTO> ruta = (fecha != null)
+                ? trackingService.getHistorialRuta(usuarioId, fecha)
+                : trackingService.getRutaDeHoy(usuarioId);
+
+        if (ruta.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+
+        String nombreUsuario = ruta.get(0).getNombreUsuario() != null
+                ? ruta.get(0).getNombreUsuario() : "Usuario_" + usuarioId;
+        String fechaStr = fecha != null ? fecha.toString() : LocalDate.now().toString();
+
+        StringBuilder kml = new StringBuilder();
+        kml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        kml.append("<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n");
+        kml.append("<Document>\n");
+        kml.append("  <name>Ruta de ").append(nombreUsuario).append(" - ").append(fechaStr).append("</name>\n");
+        kml.append("  <description>Tracking GPS - RelojReducto</description>\n");
+        kml.append("  <Style id=\"ruta\"><LineStyle><color>ff0000ff</color><width>3</width></LineStyle></Style>\n");
+        kml.append("  <Style id=\"punto\"><IconStyle><scale>0.5</scale></IconStyle></Style>\n");
+
+        // Línea de ruta
+        kml.append("  <Placemark>\n");
+        kml.append("    <name>Recorrido</name>\n");
+        kml.append("    <styleUrl>#ruta</styleUrl>\n");
+        kml.append("    <LineString>\n");
+        kml.append("      <coordinates>\n");
+        for (UbicacionTrackingDTO p : ruta) {
+            kml.append("        ").append(p.getLongitud()).append(",").append(p.getLatitud()).append(",0\n");
+        }
+        kml.append("      </coordinates>\n");
+        kml.append("    </LineString>\n");
+        kml.append("  </Placemark>\n");
+
+        // Puntos individuales
+        for (int i = 0; i < ruta.size(); i++) {
+            UbicacionTrackingDTO p = ruta.get(i);
+            String label = i == 0 ? "INICIO" : (i == ruta.size() - 1 ? "FIN" : "Punto " + i);
+            kml.append("  <Placemark>\n");
+            kml.append("    <name>").append(label).append(" - ").append(p.getFechaHora().toLocalTime()).append("</name>\n");
+            kml.append("    <description>");
+            if (p.getBateria() != null) kml.append("Bateria: ").append(p.getBateria()).append("% ");
+            if (p.getPrecisionGps() != null) kml.append("Precision: ").append(Math.round(p.getPrecisionGps())).append("m");
+            kml.append("</description>\n");
+            kml.append("    <styleUrl>#punto</styleUrl>\n");
+            kml.append("    <Point><coordinates>").append(p.getLongitud()).append(",").append(p.getLatitud()).append(",0</coordinates></Point>\n");
+            kml.append("  </Placemark>\n");
+        }
+
+        kml.append("</Document>\n</kml>");
+
+        String filename = "ruta_" + nombreUsuario.replace(" ", "_") + "_" + fechaStr + ".kml";
+        return ResponseEntity.ok()
+                .header("Content-Type", "application/vnd.google-earth.kml+xml")
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .body(kml.toString());
+    }
+
+    /**
+     * Resumen diario de todos los usuarios con tracking.
+     * GET /api/tracking/admin/resumen?fecha=2026-02-28
+     */
+    @GetMapping("/admin/resumen")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMIN_SUCURSAL')")
+    public ResponseEntity<?> getResumenDiario(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha) {
+        if (fecha == null) fecha = LocalDate.now();
+        return ResponseEntity.ok(trackingService.getResumenDiario(fecha));
+    }
+
     // ===================== HELPERS =====================
 
     private Double toDouble(Object value) {
-        if (value == null)
-            return null;
-        if (value instanceof Number)
-            return ((Number) value).doubleValue();
-        try {
-            return Double.parseDouble(value.toString());
-        } catch (Exception e) {
-            return null;
-        }
+        if (value == null) return null;
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        try { return Double.parseDouble(value.toString()); } catch (Exception e) { return null; }
     }
 
     private Integer toInteger(Object value) {
-        if (value == null)
-            return null;
-        if (value instanceof Number)
-            return ((Number) value).intValue();
-        try {
-            return Integer.parseInt(value.toString());
-        } catch (Exception e) {
-            return null;
-        }
+        if (value == null) return null;
+        if (value instanceof Number) return ((Number) value).intValue();
+        try { return Integer.parseInt(value.toString()); } catch (Exception e) { return null; }
     }
 
     private Long getUsuarioIdActual() {

@@ -1,45 +1,140 @@
-import { useEffect, useRef } from 'react';
-import { preMarcacionService } from '../services/api';
+import { useEffect, useRef, useCallback } from 'react';
+import { preMarcacionService, marcacionService } from '../services/api';
 import api from '../services/api';
 
 /**
- * GeofenceTracker - Tracking por geofence + seguridad con soporte background.
+ * GeofenceTracker - Tracking GPS vinculado al turno laboral.
  * 
- * ACTUALIZADO: Envía ubicación cada 30 segundos para tracking en tiempo real.
+ * REGLAS DE NEGOCIO:
+ * - El tracking EMPIEZA cuando el empleado marca ENTRADA
+ * - El tracking TERMINA cuando marca SALIDA
+ * - Si cierra la web/sesión, el Service Worker SIGUE trackeando
+ * - Pre-marcación (geofence check-in) se intenta una vez al detectar ubicación
  * 
- * Estrategia para funcionar con la app en segundo plano:
- * 1. watchPosition() - Sigue rastreando incluso con pantalla apagada (Android Chrome)
- * 2. Wake Lock API - Evita que el dispositivo suspenda la app
- * 3. Service Worker - Periodic Background Sync para cuando la app está cerrada
- * 4. Notification persistente - Mantiene el proceso vivo en Android
- * 5. Fallback con setInterval - Respaldo extra cada 30s
+ * ESTRATEGIA:
+ * 1. Al montar, verificar si el usuario tiene turno activo (ya marcó ENTRADA)
+ * 2. Si tiene turno activo → iniciar tracking GPS
+ * 3. watchPosition() + fallback setInterval para enviar cada 30s
+ * 4. Service Worker con token guardado en localStorage sigue en background
+ * 5. Wake Lock + Notification persistente para mantener vivo en Android
+ * 6. Escuchar evento 'marcacion-realizada' para iniciar/detener dinámicamente
  */
 const GeofenceTracker = () => {
     const watchIdRef = useRef(null);
     const hasCheckedIn = useRef(false);
+    const checkingInRef = useRef(false);
     const wakeLockRef = useRef(null);
     const lastSentRef = useRef(0);
     const fallbackIntervalRef = useRef(null);
-    const SEND_INTERVAL = 5 * 1000; // Enviar cada 5 segundos para tracking real-time
+    const isTrackingRef = useRef(false);
+    const turnoActivoRef = useRef(false);
+
+    const SEND_INTERVAL = 30 * 1000;    // 30 segundos entre envíos
+    const FALLBACK_INTERVAL = 35 * 1000; // Ligeramente mayor para no duplicar
 
     useEffect(() => {
-        iniciarTracking();
+        verificarTurnoYTrackear();
+
+        // Escuchar cuando el usuario hace una marcación (ENTRADA o SALIDA)
+        const handleMarcacion = (e) => {
+            const tipo = e.detail?.tipo;
+            if (tipo === 'ENTRADA') {
+                turnoActivoRef.current = true;
+                if (!isTrackingRef.current) iniciarTracking();
+            } else if (tipo === 'SALIDA') {
+                turnoActivoRef.current = false;
+                detenerTracking();
+                // Avisar al SW que pare
+                if (navigator.serviceWorker?.controller) {
+                    navigator.serviceWorker.controller.postMessage({ type: 'STOP_TRACKING' });
+                }
+            }
+        };
+
+        window.addEventListener('marcacion-realizada', handleMarcacion);
 
         return () => {
-            detenerTracking();
+            window.removeEventListener('marcacion-realizada', handleMarcacion);
+            // NO detenemos tracking aquí — el SW sigue
         };
     }, []);
 
-    const iniciarTracking = async () => {
+    /**
+     * Al cargar: verificar si hay turno activo.
+     * Si el próximo tipo es SALIDA → ya marcó ENTRADA → tracking activo.
+     */
+    const verificarTurnoYTrackear = async () => {
+        try {
+            const estado = await marcacionService.getEstado();
+            // Si proximoTipo es 'SALIDA', significa que ya marcó ENTRADA hoy
+            if (estado.proximoTipo === 'SALIDA') {
+                turnoActivoRef.current = true;
+                iniciarTracking();
+            } else {
+                // No tiene turno activo, pero igual intentar pre-marcación
+                turnoActivoRef.current = false;
+                iniciarPreMarcacionSolamente();
+            }
+        } catch (e) {
+            // Si falla (no autenticado, etc), intentar pre-marcación al menos
+            iniciarPreMarcacionSolamente();
+        }
+    };
+
+    // ==========================================
+    // PRE-MARCACIÓN (geofence check-in, solo una vez)
+    // ==========================================
+    const intentarCheckIn = async (latitude, longitude, accuracy) => {
+        if (hasCheckedIn.current || checkingInRef.current) return;
+
+        checkingInRef.current = true;
+        try {
+            const result = await preMarcacionService.checkin(latitude, longitude, accuracy);
+            if (result.status === 'registrado' || result.status === 'ya_registrado') {
+                hasCheckedIn.current = true;
+            }
+        } catch (e) { /* silencioso */ }
+        finally {
+            checkingInRef.current = false;
+        }
+    };
+
+    /**
+     * Solo pre-marcación sin tracking continuo.
+     * Para usuarios que aún no marcaron ENTRADA.
+     */
+    const iniciarPreMarcacionSolamente = () => {
         if (!navigator.geolocation) return;
 
-        // 1. Registrar Service Worker
+        // Un solo getCurrentPosition para intentar pre-marcación
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude, accuracy } = position.coords;
+                intentarCheckIn(latitude, longitude, accuracy);
+            },
+            () => { },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+        );
+
+        // También registrar SW para que funcione en background
+        registrarServiceWorker();
+    };
+
+    // ==========================================
+    // TRACKING COMPLETO (solo cuando hay turno activo)
+    // ==========================================
+    const iniciarTracking = async () => {
+        if (!navigator.geolocation || isTrackingRef.current) return;
+
+        isTrackingRef.current = true;
+
+        // 1. Registrar Service Worker con flag de tracking activo
         registrarServiceWorker();
 
         // 2. Solicitar Wake Lock
         solicitarWakeLock();
 
-        // 3. Solicitar permiso de notificación
+        // 3. Notificación persistente
         solicitarNotificacion();
 
         // 4. watchPosition para updates continuos
@@ -48,39 +143,41 @@ const GeofenceTracker = () => {
                 const { latitude, longitude, accuracy, speed } = position.coords;
                 const ahora = Date.now();
 
-                // Pre-marcación por geofence (solo una vez)
+                // Pre-marcación (una vez)
                 if (!hasCheckedIn.current) {
-                    try {
-                        const result = await preMarcacionService.checkin(latitude, longitude, accuracy);
-                        if (result.status === 'registrado' || result.status === 'ya_registrado') {
-                            hasCheckedIn.current = true;
-                        }
-                    } catch (e) { /* silencioso */ }
+                    intentarCheckIn(latitude, longitude, accuracy);
                 }
 
-                // Tracking: enviar cada 5 segundos
+                // Tracking: enviar cada SEND_INTERVAL
                 if (ahora - lastSentRef.current >= SEND_INTERVAL) {
                     lastSentRef.current = ahora;
                     enviarUbicacion(latitude, longitude, accuracy, speed);
                 }
             },
             (error) => {
-                usarFallbackIntervalo();
+                console.log('[Tracker] watchPosition error:', error.message);
             },
             {
                 enableHighAccuracy: true,
                 timeout: 30000,
-                maximumAge: 10000, // Cache de 10 seg para frescura
+                maximumAge: 15000,
             }
         );
 
-        // 5. SIEMPRE iniciar fallback por intervalo como respaldo
+        // 5. Fallback paralelo
         iniciarFallbackParalelo();
 
-        // 6. Listener para re-adquirir wake lock al volver a la app
+        // 6. Listener para re-adquirir wake lock
         document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        // 7. Guardar estado en localStorage para que el SW sepa
+        localStorage.setItem('tracking_activo', 'true');
+        localStorage.setItem('tracking_inicio', new Date().toISOString());
     };
 
+    // ==========================================
+    // ENVIAR UBICACIÓN
+    // ==========================================
     const enviarUbicacion = async (latitude, longitude, accuracy, speed) => {
         try {
             let bateria = null;
@@ -99,7 +196,7 @@ const GeofenceTracker = () => {
                 bateria: bateria
             });
 
-            // También guardar en Service Worker para sync offline
+            // Guardar en SW para sync offline
             if (navigator.serviceWorker?.controller) {
                 navigator.serviceWorker.controller.postMessage({
                     type: 'LOCATION_UPDATE',
@@ -113,42 +210,35 @@ const GeofenceTracker = () => {
                 });
             }
         } catch (e) {
-            // Silencioso — guardar para sync posterior vía SW
+            // Silencioso
         }
     };
 
     // ==========================================
-    // FALLBACK PARALELO: cada 30s obtener ubicación
-    // Funciona incluso si watchPosition no envía updates
+    // FALLBACK PARALELO
     // ==========================================
     const iniciarFallbackParalelo = () => {
         if (fallbackIntervalRef.current) clearInterval(fallbackIntervalRef.current);
 
         fallbackIntervalRef.current = setInterval(() => {
             const ahora = Date.now();
-            // Solo enviar si watchPosition no envió recientemente
-            if (ahora - lastSentRef.current >= SEND_INTERVAL - 5000) {
+            if (ahora - lastSentRef.current >= SEND_INTERVAL) {
                 navigator.geolocation.getCurrentPosition(
                     async (position) => {
                         const { latitude, longitude, accuracy, speed } = position.coords;
 
                         if (!hasCheckedIn.current) {
-                            try {
-                                const result = await preMarcacionService.checkin(latitude, longitude, accuracy);
-                                if (result.status === 'registrado' || result.status === 'ya_registrado') {
-                                    hasCheckedIn.current = true;
-                                }
-                            } catch (e) { /* */ }
+                            intentarCheckIn(latitude, longitude, accuracy);
                         }
 
                         lastSentRef.current = Date.now();
                         await enviarUbicacion(latitude, longitude, accuracy, speed);
                     },
-                    () => { /* silencioso */ },
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+                    () => { },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 15000 }
                 );
             }
-        }, SEND_INTERVAL);
+        }, FALLBACK_INTERVAL);
     };
 
     // ==========================================
@@ -160,27 +250,29 @@ const GeofenceTracker = () => {
                 const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
 
                 const token = localStorage.getItem('token');
-                if (reg.active && token) {
-                    reg.active.postMessage({
-                        type: 'START_TRACKING',
-                        token: token,
-                        apiBaseUrl: window.location.origin
-                    });
-                }
+                const trackingActivo = turnoActivoRef.current;
 
-                navigator.serviceWorker.ready.then(registration => {
-                    if (registration.active && token) {
-                        registration.active.postMessage({
+                const enviarConfig = (sw) => {
+                    if (sw && token) {
+                        sw.postMessage({
                             type: 'START_TRACKING',
                             token: token,
-                            apiBaseUrl: window.location.origin
+                            apiBaseUrl: window.location.origin,
+                            trackingActivo: trackingActivo,
+                            intervalo: SEND_INTERVAL
                         });
                     }
+                };
 
-                    // Periodic Background Sync (cada 5 min en background)
+                if (reg.active) enviarConfig(reg.active);
+
+                navigator.serviceWorker.ready.then(registration => {
+                    enviarConfig(registration.active);
+
+                    // Periodic Background Sync
                     if ('periodicSync' in registration) {
                         registration.periodicSync.register('background-tracking', {
-                            minInterval: 5 * 60 * 1000 // 5 minutos en background
+                            minInterval: 5 * 60 * 1000
                         }).catch(() => { });
                     }
                 });
@@ -195,15 +287,13 @@ const GeofenceTracker = () => {
         if ('wakeLock' in navigator) {
             try {
                 wakeLockRef.current = await navigator.wakeLock.request('screen');
-                wakeLockRef.current.addEventListener('release', () => { });
             } catch (e) { }
         }
     };
 
-    const handleVisibilityChange = async () => {
-        if (document.visibilityState === 'visible') {
+    const handleVisibilityChange = useCallback(async () => {
+        if (document.visibilityState === 'visible' && turnoActivoRef.current) {
             await solicitarWakeLock();
-            // Re-enviar ubicación al volver a la app
             navigator.geolocation.getCurrentPosition(
                 async (position) => {
                     const { latitude, longitude, accuracy, speed } = position.coords;
@@ -211,10 +301,10 @@ const GeofenceTracker = () => {
                     await enviarUbicacion(latitude, longitude, accuracy, speed);
                 },
                 () => { },
-                { enableHighAccuracy: false, timeout: 10000, maximumAge: 5000 }
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
             );
         }
-    };
+    }, []);
 
     // ==========================================
     // NOTIFICACIÓN PERSISTENTE
@@ -237,34 +327,31 @@ const GeofenceTracker = () => {
                         });
                     }
                 }
-            } catch (e) { /* silencioso */ }
+            } catch (e) { }
         }
     };
 
     // ==========================================
-    // FALLBACK SI WATCHPOSITION FALLA COMPLETAMENTE
-    // ==========================================
-    const usarFallbackIntervalo = () => {
-        iniciarFallbackParalelo();
-    };
-
-    // ==========================================
-    // LIMPIEZA
+    // DETENER TRACKING (solo cuando marca SALIDA)
     // ==========================================
     const detenerTracking = () => {
         if (watchIdRef.current !== null) {
             navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
         }
         if (fallbackIntervalRef.current) {
             clearInterval(fallbackIntervalRef.current);
+            fallbackIntervalRef.current = null;
         }
         if (wakeLockRef.current) {
             wakeLockRef.current.release().catch(() => { });
+            wakeLockRef.current = null;
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
+        isTrackingRef.current = false;
+        localStorage.setItem('tracking_activo', 'false');
     };
 
-    // No renderiza nada — invisible
     return null;
 };
 

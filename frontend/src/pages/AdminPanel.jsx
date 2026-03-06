@@ -1095,20 +1095,28 @@ function AdminAsistencia() {
             }
         });
 
-        return Object.values(resumen).filter(r => {
-            if (filtros.busqueda) {
-                const busqueda = filtros.busqueda.toLowerCase();
-                return r.usuario.nombreCompleto.toLowerCase().includes(busqueda) ||
-                    r.usuario.username.includes(busqueda);
-            }
-            if (filtros.status && filtros.status !== r.status) {
-                return false;
-            }
-            if (filtros.sucursalId && r.usuario.sucursalId !== parseInt(filtros.sucursalId)) {
-                return false;
-            }
-            return true;
-        });
+        return Object.values(resumen)
+            .sort((a, b) => {
+                const priority = { 'tardanza': 1, 'presente': 1, 'ausente': 2 };
+                if (priority[a.status] !== priority[b.status]) {
+                    return priority[a.status] - priority[b.status];
+                }
+                return a.usuario.nombreCompleto.localeCompare(b.usuario.nombreCompleto);
+            })
+            .filter(r => {
+                if (filtros.busqueda) {
+                    const busqueda = filtros.busqueda.toLowerCase();
+                    return r.usuario.nombreCompleto.toLowerCase().includes(busqueda) ||
+                        r.usuario.username.includes(busqueda);
+                }
+                if (filtros.status && filtros.status !== r.status) {
+                    return false;
+                }
+                if (filtros.sucursalId && r.usuario.sucursalId !== parseInt(filtros.sucursalId)) {
+                    return false;
+                }
+                return true;
+            });
     };
 
     const formatTime = (fechaHora) => {
@@ -1416,27 +1424,33 @@ function AdminDescuentos() {
     const cargarDatos = async () => {
         try {
             setLoading(true);
-            const [users, allMarcaciones, sucursalesData] = await Promise.all([
+
+            // Calcular rango de fechas del mes seleccionado
+            const [year, month] = mesFiltro.split('-').map(Number);
+            const inicio = `${mesFiltro}-01`;
+            const lastDay = new Date(year, month, 0).getDate();
+            const fin = `${mesFiltro}-${String(lastDay).padStart(2, '0')}`;
+
+            const [users, marcacionesMes, sucursalesData] = await Promise.all([
                 adminService.getUsuarios(),
-                adminService.getAllMarcaciones(),
+                adminService.getMarcacionesByRango(inicio, fin),
                 sucursalService.getSucursales()
             ]);
             setSucursales(sucursalesData);
 
-            // Filtrar por mes y sucursal
-            const tardias = allMarcaciones.filter(m => {
-                const mesM = m.fechaHora.slice(0, 7);
-                const mismoMes = mesM === mesFiltro;
-                if (!mismoMes || !m.esTardia) return false;
+            // Filtrar solo tardías (ya vienen del mes correcto)
+            let tardias = marcacionesMes.filter(m => m.esTardia);
 
-                if (sucursalFiltro) {
+            // Filtrar por sucursal si hay selección
+            if (sucursalFiltro) {
+                const sucId = parseInt(sucursalFiltro);
+                tardias = tardias.filter(m => {
                     const user = users.find(u => u.id === m.usuarioId);
-                    return user && user.sucursalId === parseInt(sucursalFiltro);
-                }
-                return true;
-            });
+                    return user && user.sucursalId === sucId;
+                });
+            }
 
-            // Calcular Top
+            // Calcular stats de TODOS los usuarios con tardanzas (sin truncar)
             const userStats = users.reduce((acc, user) => {
                 const userTardias = tardias.filter(t => t.usuarioId === user.id);
                 if (userTardias.length > 0) {
@@ -1456,7 +1470,7 @@ function AdminDescuentos() {
                 totalTardias: tardias.length,
                 montoTotal: tardias.reduce((sum, t) => sum + (t.descuentoCalculado || 0), 0),
                 promedioMinutos: tardias.length ? Math.round(tardias.reduce((sum, t) => sum + (t.minutosTarde || 0), 0) / tardias.length) : 0,
-                topInfractores: userStats.slice(0, 10)
+                topInfractores: userStats
             });
             setMarcaciones(tardias);
         } catch (error) {
@@ -1536,7 +1550,7 @@ function AdminDescuentos() {
 
             <section className="table-container">
                 <div className="modal-header" style={{ border: 'none' }}>
-                    <h2>Ranking de Descuentos (Top 10)</h2>
+                    <h2>Ranking de Descuentos ({stats.topInfractores.length} colaboradores)</h2>
                 </div>
                 <table className="data-table">
                     <thead>
@@ -2284,7 +2298,7 @@ function UsuarioModal({ onClose, onSave, usuario = null }) {
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content animate-slideUp" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content side-modal animate-slideInRight" onClick={(e) => e.stopPropagation()}>
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                     <div className="modal-header">
                         <h2>
@@ -2957,40 +2971,28 @@ function AdminReportes() {
                     {/* RANGO DE FECHAS CUSTOMIZADO UX DD/MM/YYYY */}
                     <div className="form-group">
                         <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-slate-600)', marginBottom: '0.75rem' }}>Desde Fecha</label>
-                        <div className="premium-input-group" style={{ position: 'relative' }}>
-                            <Calendar size={18} style={{ zIndex: 5 }} />
-                            <input
-                                type="text"
-                                readOnly
-                                className="input"
-                                value={dateRange.inicio.split('-').reverse().join('/')}
-                                style={{ height: '48px', border: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: '600', cursor: 'pointer', color: '#0f172a', width: '100%' }}
-                            />
+                        <div className="premium-input-group">
+                            <Calendar size={18} />
                             <input
                                 type="date"
+                                className="input"
                                 value={dateRange.inicio}
                                 onChange={(e) => setDateRange({ ...dateRange, inicio: e.target.value })}
-                                style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', top: 0, left: 0, cursor: 'pointer', zIndex: 10 }}
+                                style={{ height: '48px', border: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: '600', color: '#0f172a', width: '100%', cursor: 'pointer' }}
                             />
                         </div>
                     </div>
 
                     <div className="form-group">
                         <label style={{ display: 'block', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--p-slate-600)', marginBottom: '0.75rem' }}>Hasta Fecha</label>
-                        <div className="premium-input-group" style={{ position: 'relative' }}>
-                            <Calendar size={18} style={{ zIndex: 5 }} />
-                            <input
-                                type="text"
-                                readOnly
-                                className="input"
-                                value={dateRange.fin.split('-').reverse().join('/')}
-                                style={{ height: '48px', border: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: '600', cursor: 'pointer', color: '#0f172a', width: '100%' }}
-                            />
+                        <div className="premium-input-group">
+                            <Calendar size={18} />
                             <input
                                 type="date"
+                                className="input"
                                 value={dateRange.fin}
                                 onChange={(e) => setDateRange({ ...dateRange, fin: e.target.value })}
-                                style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', top: 0, left: 0, cursor: 'pointer', zIndex: 10 }}
+                                style={{ height: '48px', border: '2px solid #e2e8f0', background: '#f8fafc', fontWeight: '600', color: '#0f172a', width: '100%', cursor: 'pointer' }}
                             />
                         </div>
                     </div>
@@ -4848,7 +4850,7 @@ function SucursalModal({ sucursal, onClose, onSave }) {
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content animate-slideUp" onClick={e => e.stopPropagation()}>
+            <div className="modal-content side-modal animate-slideInRight" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <h2><ChevronRight size={20} /> {sucursal ? 'Editar' : 'Nueva'} localidad</h2>
                     <div className="modal-header-actions">
@@ -5495,7 +5497,7 @@ function AdminRastreo() {
                         </div>
                         Rastreo GPS Pro
                     </h1>
-                    <p>Ubicación de colaboradores para seguridad — Actualiza cada 30s</p>
+                    <p>Ubicación de colaboradores para seguridad — Tracking cada 30s</p>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', color: '#64748b', cursor: 'pointer' }}>
@@ -5533,9 +5535,33 @@ function AdminRastreo() {
                         </div>
                     </div>
                 </div>
+                <div className="p-stat-card" style={{ borderLeft: '4px solid #f59e0b' }}>
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>🔋</div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Batería Baja</span>
+                            <span className="p-stat-value" style={{ color: ubicaciones.filter(u => u.bateria != null && u.bateria < 20).length > 0 ? '#ef4444' : '#10b981' }}>
+                                {ubicaciones.filter(u => u.bateria != null && u.bateria < 20).length}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div className="p-stat-card" style={{ borderLeft: '4px solid #8b5cf6' }}>
+                    <div className="p-stat-header">
+                        <div className="p-stat-icon" style={{ background: 'rgba(139,92,246,0.1)', color: '#8b5cf6' }}>🎯</div>
+                        <div className="p-stat-info">
+                            <span className="p-stat-label">Precisión Promedio</span>
+                            <span className="p-stat-value">
+                                {ubicaciones.length > 0
+                                    ? `${Math.round(ubicaciones.reduce((s, u) => s + (u.precisionGps || 0), 0) / ubicaciones.length)}m`
+                                    : '—'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1fr 350px', gap: '1.5rem' }}>
                 {/* Mapa */}
                 <div className="p-chart-card" style={{ overflow: 'hidden' }}>
                     <div className="p-chart-header">
@@ -5957,13 +5983,30 @@ function AdminRastreo() {
                             {/* Fecha */}
                             <div style={{ marginBottom: 16 }}>
                                 <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>Fecha</label>
-                                <input
-                                    type="date"
-                                    className="input"
-                                    style={{ width: '100%', borderRadius: 10, fontSize: '0.85rem' }}
-                                    value={fechaRuta}
-                                    onChange={(e) => setFechaRuta(e.target.value)}
-                                />
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <input
+                                        type="date"
+                                        className="input"
+                                        style={{ flex: 1, borderRadius: 10, fontSize: '0.85rem' }}
+                                        value={fechaRuta}
+                                        onChange={(e) => setFechaRuta(e.target.value)}
+                                    />
+                                    {selectedUser && ruta.length > 0 && (
+                                        <button
+                                            onClick={() => trackingService.exportKml(selectedUser, fechaRuta)}
+                                            style={{
+                                                padding: '6px 12px', borderRadius: 10, border: '1px solid #e2e8f0',
+                                                background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+                                                color: '#16a34a', fontWeight: 700, fontSize: '0.75rem',
+                                                cursor: 'pointer', whiteSpace: 'nowrap',
+                                                display: 'flex', alignItems: 'center', gap: 4
+                                            }}
+                                            title="Descargar ruta para Google Earth"
+                                        >
+                                            🌍 KML
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             {selectedUser && ruta.length > 0 && (() => {
@@ -6102,12 +6145,22 @@ function AdminRastreo() {
                                             </div>
                                             <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
                                                 {tiempoDesde(ub.fechaHora)}
-                                                {ub.bateria != null && ` · 🔋${ub.bateria}%`}
+                                                {ub.bateria != null && (
+                                                    <span style={{
+                                                        color: ub.bateria < 15 ? '#ef4444' : ub.bateria < 30 ? '#f59e0b' : '#94a3b8',
+                                                        fontWeight: ub.bateria < 15 ? 700 : 400
+                                                    }}>
+                                                        {` · 🔋${ub.bateria}%`}
+                                                        {ub.bateria < 15 && ' ⚠️'}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                         <div style={{
                                             width: 8, height: 8, borderRadius: '50%',
-                                            background: '#10b981', flexShrink: 0
+                                            background: ub.bateria != null && ub.bateria < 15 ? '#ef4444' : '#10b981',
+                                            flexShrink: 0,
+                                            animation: ub.bateria != null && ub.bateria < 15 ? 'pulse-live 1s infinite' : 'none'
                                         }} />
                                     </div>
                                 ))

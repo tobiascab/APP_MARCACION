@@ -17,6 +17,7 @@ body {
 }
 
 :root {
+    color-scheme: only light;
     --p-emerald-50: #ecfdf5;
     --p-emerald-100: #d1fae5;
     --p-emerald-500: #10b981;
@@ -2042,8 +2043,8 @@ body {
 
     /* Adjust Main Content */
     .admin-main {
-        padding: 4rem 1.5rem 2rem 1.5rem;
-        /* Top padding for toggle button space */
+        padding: 5.5rem 1.5rem 2rem 1.5rem;
+        /* Espacio para el botón de menú y evitar traslape con título */
         width: 100%;
     }
 
@@ -2519,8 +2520,10 @@ body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%) scale(0.9);
-    width: 500px;
-    height: 500px;
+    width: 450px;
+    height: 450px;
+    max-width: 90vw;
+    max-height: 90vw;
     border-radius: 20px;
     background: #fff;
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
@@ -2534,6 +2537,12 @@ body {
     justify-content: center;
     overflow: hidden;
     border: 5px solid white;
+}
+
+@media (max-width: 768px) {
+    .avatar-preview {
+        display: none !important;
+    }
 }
 
 /* Mostrar hover luego de 0.5 segundo de retraso */

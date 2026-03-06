@@ -88,9 +88,15 @@ self.addEventListener('sync', (event) => {
 // =============================================
 self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'START_TRACKING') {
-        console.log('[SW] Recibido comando de tracking');
+        console.log('[SW] Recibido comando de tracking, activo:', event.data.trackingActivo);
         self.authToken = event.data.token;
         self.apiBaseUrl = event.data.apiBaseUrl;
+        self.trackingActivo = event.data.trackingActivo !== false; // default true
+    }
+
+    if (event.data && event.data.type === 'STOP_TRACKING') {
+        console.log('[SW] Tracking detenido (usuario marcó SALIDA)');
+        self.trackingActivo = false;
     }
 
     if (event.data && event.data.type === 'LOCATION_UPDATE') {
@@ -133,6 +139,10 @@ self.addEventListener('message', (event) => {
 // =============================================
 async function enviarUbicacionDesdeWorker() {
     try {
+        if (self.trackingActivo === false) {
+            console.log('[SW] Tracking inactivo, omitiendo envío');
+            return;
+        }
         const pendientes = await getPendingLocations();
 
         if (pendientes.length > 0 && self.authToken) {

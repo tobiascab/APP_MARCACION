@@ -22,7 +22,7 @@ import MapaMarcacion from '../components/MapaMarcacion';
 import VistaHistorial from '../components/VistaHistorial';
 import VistaMarcacionMapa from '../components/VistaMarcacionMapa';
 import MiPerfil from '../components/MiPerfil';
-import GeofenceTracker from '../components/GeofenceTracker';
+
 import InstallPWABanner from '../components/InstallPWABanner';
 import MisJustificaciones from '../components/MisJustificaciones';
 import './Dashboard.css';
@@ -284,7 +284,7 @@ function Dashboard() {
     if (isDesktop) {
         return (
             <div className="desktop-dashboard">
-                {usuario?.requiereGeolocalizacion && <GeofenceTracker />}
+
                 <InstallPWABanner />
                 <header className="desktop-header">
                     <div className="desktop-header-left">
@@ -350,7 +350,7 @@ function Dashboard() {
                                 <tbody>
                                     {agruparPorFecha(historialMarcaciones).map(([fecha, marcaciones], i) => (
                                         <tr key={i} className={i === 0 ? 'hoy' : ''}>
-                                            <td className="fecha-col">{fecha.split('/').slice(0, 2).join('/')}/26</td>
+                                            <td className="fecha-col">{fecha}</td>
                                             <td className={marcaciones.entrada?.esTardia ? 'tardia' : ''}>{formatTime(marcaciones.entrada?.fechaHora)}</td>
                                             <td>{formatTime(marcaciones.salida?.fechaHora)}</td>
                                         </tr>
@@ -394,7 +394,7 @@ function Dashboard() {
 
     return (
         <div className="app-container">
-            {usuario?.requiereGeolocalizacion && <GeofenceTracker />}
+
             <InstallPWABanner />
             {/* Header */}
             <header style={{
@@ -430,10 +430,10 @@ function Dashboard() {
                         <LogOut size={20} />
                     </button>
                 </div>
-            </header>
+            </header >
 
             {/* Main Content */}
-            <main
+            < main
                 className="app-main"
                 onTouchStart={onTouchStart}
                 onTouchMove={onTouchMove}
@@ -508,7 +508,7 @@ function Dashboard() {
                                 <tbody>
                                     {agruparPorFecha(historialMarcaciones).map(([fecha, marcaciones], i) => (
                                         <tr key={i} className={i === 0 ? 'hoy' : ''}>
-                                            <td className="fecha-col">{fecha.split('/').slice(0, 2).join('/')}/26</td>
+                                            <td className="fecha-col">{fecha}</td>
                                             <td className={marcaciones.entrada?.esTardia ? 'tardia' : ''}>
                                                 {formatTime(marcaciones.entrada?.fechaHora)}
                                             </td>
@@ -569,10 +569,10 @@ function Dashboard() {
                         </div>
                     </div>
                 </div>
-            </main>
+            </main >
 
             {/* Bottom Navigation */}
-            <nav className="bottom-nav">
+            < nav className="bottom-nav" >
                 <button
                     className={`nav-tab ${activeTab === 'home' ? 'active' : ''}`}
                     onClick={() => setActiveTab('home')}
@@ -594,10 +594,10 @@ function Dashboard() {
                     <MenuIcon size={24} />
                     <span>Menu</span>
                 </button>
-            </nav>
+            </nav >
 
             {renderModals()}
-        </div>
+        </div >
     );
 }
 

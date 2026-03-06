@@ -18,7 +18,7 @@ public interface PreMarcacionRepository extends JpaRepository<PreMarcacion, Long
     /**
      * Busca pre-marcaciones de hoy para un usuario (la más reciente primero).
      */
-    @Query("SELECT p FROM PreMarcacion p WHERE p.usuario.id = :usuarioId " +
+    @Query("SELECT p FROM PreMarcacion p JOIN FETCH p.usuario LEFT JOIN FETCH p.sucursal WHERE p.usuario.id = :usuarioId " +
             "AND DATE(p.fechaHoraDeteccion) = CURRENT_DATE ORDER BY p.fechaHoraDeteccion DESC")
     List<PreMarcacion> findPreMarcacionesDeHoy(@Param("usuarioId") Long usuarioId);
 
@@ -33,22 +33,25 @@ public interface PreMarcacionRepository extends JpaRepository<PreMarcacion, Long
      * Obtiene la primera pre-marcación del día (la más antigua = hora real de
      * llegada).
      */
-    @Query("SELECT p FROM PreMarcacion p WHERE p.usuario.id = :usuarioId " +
+    @Query("SELECT p FROM PreMarcacion p JOIN FETCH p.usuario LEFT JOIN FETCH p.sucursal WHERE p.usuario.id = :usuarioId " +
             "AND DATE(p.fechaHoraDeteccion) = CURRENT_DATE ORDER BY p.fechaHoraDeteccion ASC")
     List<PreMarcacion> findPrimeraPreMarcacionDeHoy(@Param("usuarioId") Long usuarioId);
 
     /**
      * Obtiene todas las pre-marcaciones de hoy (todos los usuarios).
      */
-    @Query("SELECT p FROM PreMarcacion p WHERE DATE(p.fechaHoraDeteccion) = CURRENT_DATE " +
+    @Query("SELECT p FROM PreMarcacion p JOIN FETCH p.usuario JOIN FETCH p.sucursal WHERE DATE(p.fechaHoraDeteccion) = CURRENT_DATE " +
             "ORDER BY p.fechaHoraDeteccion DESC")
     List<PreMarcacion> findAllPreMarcacionesDeHoy();
 
     /**
      * Obtiene pre-marcaciones por rango de fechas.
      */
+    @Query("SELECT p FROM PreMarcacion p JOIN FETCH p.usuario LEFT JOIN FETCH p.sucursal " +
+            "WHERE p.fechaHoraDeteccion BETWEEN :inicio AND :fin " +
+            "ORDER BY p.fechaHoraDeteccion DESC")
     List<PreMarcacion> findByFechaHoraDeteccionBetweenOrderByFechaHoraDeteccionDesc(
-            LocalDateTime inicio, LocalDateTime fin);
+            @Param("inicio") LocalDateTime inicio, @Param("fin") LocalDateTime fin);
 
     /**
      * Obtiene pre-marcaciones de un usuario por rango de fechas.
@@ -59,7 +62,7 @@ public interface PreMarcacionRepository extends JpaRepository<PreMarcacion, Long
     /**
      * Obtiene la primera pre-marcación del día para un usuario.
      */
-    @Query("SELECT p FROM PreMarcacion p WHERE p.usuario.id = :usuarioId " +
+    @Query("SELECT p FROM PreMarcacion p JOIN FETCH p.usuario LEFT JOIN FETCH p.sucursal WHERE p.usuario.id = :usuarioId " +
             "AND p.fechaHoraDeteccion BETWEEN :inicio AND :fin " +
             "ORDER BY p.fechaHoraDeteccion ASC")
     List<PreMarcacion> findPrimeraPreMarcacionEnRango(
